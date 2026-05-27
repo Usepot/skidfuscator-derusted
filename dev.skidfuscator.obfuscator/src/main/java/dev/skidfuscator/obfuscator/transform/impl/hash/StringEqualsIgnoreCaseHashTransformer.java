@@ -12,7 +12,7 @@ import sdk.LongHashFunction;
 
 public class StringEqualsIgnoreCaseHashTransformer extends AbstractExpressionTransformer {
     public StringEqualsIgnoreCaseHashTransformer(final Skidfuscator skidfuscator) {
-        super(skidfuscator, "String EqIgCase Hash");
+        super(skidfuscator, "String Eq Ig Case Hash");
         requiresSdk();
     }
 

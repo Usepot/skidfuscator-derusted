@@ -6,420 +6,747 @@ import com.typesafe.config.ConfigValue;
 import dev.skidfuscator.obfuscator.config.SkidfuscatorConfig;
 import dev.skidfuscator.obfuscator.gui.transformer.TransformerOptionDefinition;
 import dev.skidfuscator.obfuscator.gui.transformer.TransformerOptionType;
+import dev.skidfuscator.obfuscator.gui.ui.Card;
+import dev.skidfuscator.obfuscator.gui.ui.SecondaryButton;
+import dev.skidfuscator.obfuscator.gui.ui.SectionHeader;
+import dev.skidfuscator.obfuscator.gui.ui.StatusBadge;
+import dev.skidfuscator.obfuscator.gui.ui.ToggleSwitch;
+import dev.skidfuscator.obfuscator.gui.ui.UiTheme;
 
-import javax.swing.*;
-import javax.swing.border.EtchedBorder;
-import java.awt.*;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TransformerPanel extends JPanel {
-    private final Map<String, TransformerSection> transformerSections;
-    private final JButton saveConfigButton;
-    private final JButton loadConfigButton;
+
+    private static final List<String> DEFAULT_GLOBAL_EXEMPTIONS = Arrays.asList(
+            "class{^jghost\\/}",
+            "class{Dump}");
+
+    private final Map<String, TransformerCard> sections = new LinkedHashMap<>();
     private final File defaultConfigFile = new File("skidfuscator-config.conf");
+    private boolean loading;
 
     public TransformerPanel() {
-        setLayout(new BorderLayout(10, 10));
+        setLayout(new BorderLayout());
+        setOpaque(false);
 
-        // Create compound border with titled border and empty border for padding
-        setBorder(BorderFactory.createCompoundBorder(
-                // Outer titled border
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createEtchedBorder(EtchedBorder.RAISED),
-                        "Transformers",
-                        javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                        javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                        new Font("Segoe UI", Font.BOLD, 16)
-                ),
-                // Inner empty border for padding
-                BorderFactory.createEmptyBorder(20, 0, 10, 0)
-        ));
-        
-        // Create transformer sections panel with BoxLayout
-        JPanel sectionsPanel = new JPanel();
-        sectionsPanel.setLayout(new BoxLayout(sectionsPanel, BoxLayout.Y_AXIS));
-        sectionsPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        transformerSections = new HashMap<>();
+        add(new SectionHeader(
+                "Transformers",
+                "Toggle individual passes. Expand a card to tweak its options."),
+                BorderLayout.NORTH);
 
-        // Initialize transformer sections with their options
-        initializeTransformerSections(sectionsPanel);
+        JPanel activeList = createListPanel();
+        JPanel unusedList = createListPanel();
+        initSections(activeList, unusedList);
 
-        // Add rigid areas between sections
-        Component[] components = sectionsPanel.getComponents();
-        for (int i = 0; i < components.length - 1; i++) {
-            sectionsPanel.add(Box.createRigidArea(new Dimension(0, 10)), i * 2 + 1);
-        }
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.setOpaque(false);
+        tabs.addTab("Active", scrollFor(activeList));
+        tabs.addTab("Unused / Unwired", scrollFor(unusedList));
+        add(tabs, BorderLayout.CENTER);
 
-        // Add sections to a scrollable panel
-        JScrollPane scrollPane = new JScrollPane(sectionsPanel);
-        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        add(scrollPane, BorderLayout.CENTER);
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, UiTheme.PAD_S, 0));
+        toolbar.setOpaque(false);
+        JButton load = new SecondaryButton("Load Config");
+        JButton save = new SecondaryButton("Save Config");
+        load.addActionListener(e -> loadConfiguration());
+        save.addActionListener(e -> saveConfiguration());
+        toolbar.add(load);
+        toolbar.add(save);
+        add(toolbar, BorderLayout.SOUTH);
 
-        // Create buttons panel
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        saveConfigButton = new JButton("Save Config");
-        loadConfigButton = new JButton("Load Config");
-
-        saveConfigButton.addActionListener(e -> saveConfiguration());
-        loadConfigButton.addActionListener(e -> loadConfiguration());
-
-        buttonPanel.add(loadConfigButton);
-        buttonPanel.add(saveConfigButton);
-        add(buttonPanel, BorderLayout.SOUTH);
+        loadConfiguration(false);
     }
 
-    private void initializeTransformerSections(JPanel panel) {
-        // Define transformer sections with their options
-        addTransformerSection(panel, "stringEncryption", "String Encryption", Arrays.asList(
-                TransformerOptionDefinition.builder()
-                        .key("type")
-                        .label("Encryption Type")
+    private JPanel createListPanel() {
+        JPanel list = new JPanel();
+        list.setOpaque(false);
+        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+        list.setBorder(BorderFactory.createEmptyBorder(0, 0, UiTheme.PAD_L, 0));
+        return list;
+    }
+
+    private JScrollPane scrollFor(JPanel list) {
+        JScrollPane scroll = new JScrollPane(list);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        return scroll;
+    }
+
+    private void initSections(JPanel host, JPanel unusedHost) {
+        // ---------------- Strings ----------------
+        addCategory(host, "Strings", "Encrypt or obfuscate literal strings.");
+
+        addSection(host, "stringEncryption", "String Encryption",
+                "Encrypts string constants. STANDARD is the only published mode today.",
+                true, null,
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("type").label("Encryption type")
                         .type(TransformerOptionType.ENUM)
-                        .enumValues(Arrays.asList("STANDARD", "POLYMORPHIC"))
+                        .enumValues(Collections.singletonList("STANDARD"))
                         .defaultValue("STANDARD")
                         .description("Type of string encryption to apply")
-                        .build()
-        ), true, "Encrypts string constants in the bytecode using various obfuscation techniques. " +
-                "Makes it harder to identify and modify important string values.");
+                        .build()));
 
-        addTransformerSection(panel, "flowException", "Flow Exception", Arrays.asList(
-                TransformerOptionDefinition.builder()
-                        .key("strength")
-                        .label("Strength")
+        addCategory(unusedHost, "Strings", "Legacy/default config entries that are not registered in the current runtime.");
+
+        addSection(unusedHost, "stringAnnotationEncryption", "String Annotation Encryption",
+                "Encrypts string values stored in Java annotations at runtime.",
+                true, "Unwired", Collections.emptyList());
+
+        addSection(unusedHost, "intAnnotationEncryption", "Int Annotation Encryption",
+                "Encrypts integer values stored in Java annotations.",
+                true, "Unwired", Collections.emptyList());
+
+        // ---------------- Numbers / Hashes ----------------
+        addCategory(host, "Numbers & Hashing", "Polymorphic math, hashed comparisons and lookups.");
+
+        addSection(host, "numberEncryption", "Number Encryption",
+                "Encrypts numeric literals using mathematical transformations and the seeded hash table.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "pureEncryption", "Pure Encryption",
+                "Replaces pure-function calls with seeded hashed equivalents to harden return values.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "stringEqualsHash", "String Equals Hash",
+                "Rewrites String.equals comparisons against constants into hashed checks.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "stringEqIgCaseHash", "String EqualsIgnoreCase Hash",
+                "Rewrites String.equalsIgnoreCase comparisons into hashed checks.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "typeCheck", "Type Check (instanceof)",
+                "Replaces direct instanceof / Class.isInstance checks with hashed lookups.",
+                true, null, Collections.emptyList());
+
+        addCategory(unusedHost, "Numbers & Hashing", "Keys present in older configs but not consumed by the current transformer list.");
+
+        addSection(unusedHost, "reference", "Reference Hardening",
+                "Hardens method / field reference resolution. Off by default.",
+                false, "Unwired", Collections.emptyList());
+
+        // ---------------- Control Flow ----------------
+        addCategory(host, "Control Flow", "Twist, split and re-route the method CFG.");
+
+        addSection(host, "flowCondition", "Flow Condition",
+                "Adds bogus conditions and opaque predicates to control flow branches.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "flowException", "Flow Exception",
+                "Wraps control flow in fake exception handlers to confuse decompilers.",
+                true, null,
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("strength").label("Strength")
                         .type(TransformerOptionType.ENUM)
                         .enumValues(Arrays.asList("WEAK", "GOOD", "AGGRESSIVE"))
-                        .defaultValue("GOOD")
+                        .defaultValue("AGGRESSIVE")
                         .description("Flow exception transformation strength")
-                        .build()
-        ), true, "Adds complex exception handling to the control flow. " +
-                "Makes it more difficult to understand the program's logic through static analysis.");
+                        .build()));
 
-        // Number Encryption transformer
-        addTransformerSection(panel, "numberEncryption", "Number Encryption", Collections.emptyList(), true,
-                "Encrypts numeric constants in the bytecode using mathematical transformations. " +
-                        "Makes it harder to identify and modify important numeric values.");
+        addSection(host, "flowRange", "Flow Range",
+                "Splits loops and iterative structures to break decompiler heuristics.",
+                true, null, Collections.emptyList());
 
-        // Flow Condition transformer
-        addTransformerSection(panel, "flowCondition", "Flow Condition", Collections.emptyList(), true,
-                "Adds complex conditional statements and bogus branches to obscure the original control flow. " +
-                        "Makes it more difficult to understand the program's logic through static analysis.");
+        addSection(host, "flowSwitch", "Flow Switch",
+                "Rewrites tableswitch / lookupswitch blocks with seeded keys.",
+                true, null, Collections.emptyList());
 
-        // Flow Range transformer
-        addTransformerSection(panel, "flowRange", "Flow Range", Collections.emptyList(), true,
-                "Implements range-based control flow obfuscation by splitting loops and iterative structures. " +
-                        "Helps prevent accurate decompilation of loop constructs and iterations.");
+        addCategory(unusedHost, "Control Flow", "Control-flow config entries without a registered transformer in this build.");
 
-        // Native transformer
-        addTransformerSection(panel, "native", "Native", Collections.emptyList(), false,
-                "Converts selected Java methods to native code implementations. " +
-                        "Provides strongest protection but requires platform-specific compilation.");
+        addSection(unusedHost, "flowFactoryMaker", "Flow Factory Maker",
+                "Materialises seed factories for inter-procedural flow obfuscation.",
+                true, "Unwired", Collections.emptyList());
+
+        addSection(unusedHost, "exceptionReturn", "Exception Return",
+                "Replaces ordinary returns with exception-driven control flow exits.",
+                true, "Unwired", Collections.emptyList());
+
+        addSection(unusedHost, "outliner", "Outliner",
+                "Outlines instruction blocks into synthetic helper methods.",
+                true, "Unwired", Collections.emptyList());
+
+        // ---------------- Inter-procedural ----------------
+        addCategory(host, "Inter-procedural", "Cross-method seed plumbing (cannot be disabled in classic mode).");
+
+        addSection(host, "interprocedural", "Interprocedural",
+                "Threads obfuscation seeds through the call graph. Required by other passes.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "interproceduralHarden", "Interprocedural Harden",
+                "Hardens the seed plumbing with extra randomisation per call-site.",
+                true, null, Collections.emptyList());
+
+        // ---------------- Pre-processing ----------------
+        addCategory(host, "Pre-processing", "Optional passes that prepare the input jar before Skidfuscator runs.");
+
+        addSection(host, "proGuard", "ProGuard Class Renaming",
+                "Runs ProGuard before Skidfuscator to rename classes, then feeds the renamed jar into Skidfuscator.",
+                false, "Pre",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("dontshrink").label("Disable shrinking")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -dontshrink")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("dontoptimize").label("Disable optimization")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -dontoptimize")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("dontpreverify").label("Disable preverification")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -dontpreverify")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("ignorewarnings").label("Ignore warnings")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -ignorewarnings")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("overloadaggressively").label("Overload aggressively")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -overloadaggressively")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("adaptclassstrings").label("Adapt class strings")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -adaptclassstrings")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("adaptresourcefilenames").label("Adapt resource file names")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -adaptresourcefilenames using the resource filter below")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("adaptresourcefilecontents").label("Adapt resource contents")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Adds -adaptresourcefilecontents using the resource filter below")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("keepmain").label("Keep main methods")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Keeps public static main methods while still allowing class obfuscation")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("keepattributes").label("Keep attributes")
+                                .type(TransformerOptionType.STRING)
+                                .defaultValue("Signature,*Annotation*,InnerClasses,EnclosingMethod,Exceptions")
+                                .description("Value for -keepattributes; leave blank to omit")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("resourcefilter").label("Resource filter")
+                                .type(TransformerOptionType.STRING)
+                                .defaultValue("**.properties,**.xml,**.yml,**.yaml,**.json,META-INF/MANIFEST.MF")
+                                .description("Filter used by resource filename/content adaptation")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("extrarules").label("Extra ProGuard rules")
+                                .type(TransformerOptionType.TEXT)
+                                .defaultValue("")
+                                .description("Raw ProGuard rules appended to the generated config, one per line")
+                                .build()));
+
+        // ---------------- Renaming ----------------
+        addCategory(unusedHost, "Renaming", "These GUI options are not wired to the obfuscator runtime; use the ProGuard renaming option instead.");
+
+        addSection(unusedHost, "classRenamer", "Class Renamer",
+                "Renames classes using the chosen scheme. May break reflection.",
+                false, "Unwired",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("type").label("Scheme")
+                                .type(TransformerOptionType.ENUM)
+                                .enumValues(Arrays.asList("ALPHABETICAL", "CUSTOM"))
+                                .defaultValue("CUSTOM")
+                                .description("Naming scheme")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("prefix").label("Package prefix")
+                                .type(TransformerOptionType.STRING)
+                                .defaultValue("skido/")
+                                .description("Internal-name prefix for renamed classes")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("depth").label("Depth")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(3)
+                                .description("Generated name depth")
+                                .build()));
+
+        addSection(unusedHost, "methodRenamer", "Method Renamer",
+                "Renames methods using the chosen scheme. May break reflection.",
+                false, "Unwired",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("type").label("Scheme")
+                                .type(TransformerOptionType.ENUM)
+                                .enumValues(Arrays.asList("ALPHABETICAL", "CUSTOM"))
+                                .defaultValue("CUSTOM")
+                                .description("Naming scheme")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("depth").label("Depth")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(3)
+                                .description("Generated name depth")
+                                .build()));
+
+        addSection(unusedHost, "fieldRenamer", "Field Renamer",
+                "Renames fields using the chosen scheme. May break reflection.",
+                false, "Unwired",
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("type").label("Scheme")
+                        .type(TransformerOptionType.ENUM)
+                        .enumValues(Arrays.asList("ALPHABETICAL", "CUSTOM"))
+                        .defaultValue("ALPHABETICAL")
+                        .description("Naming scheme")
+                        .build()));
+
+        // ---------------- Misc / Advanced ----------------
+        addCategory(host, "Advanced", "SDK and runtime-output toggles.");
+
+        addSection(host, "sdk", "SDK Injector",
+                "Injects the Skidfuscator runtime SDK into the output jar. Required by SDK-dependent passes.",
+                true, null, Collections.emptyList());
+
+        addCategory(unusedHost, "Advanced", "Experimental or enterprise config entries not consumed by this build.");
+
+        addSection(unusedHost, "driver", "Driver",
+                "Wraps the program with a launch driver. Off by default.",
+                false, "Unwired",
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("path").label("Driver path")
+                        .type(TransformerOptionType.STRING)
+                        .defaultValue("skid/Driver")
+                        .description("Internal name of the generated driver class")
+                        .build()));
+
+        addSection(host, "ahegao", "Ahegao",
+                "Cosmetic / fingerprinting transformer. Mostly harmless.",
+                true, null, Collections.emptyList());
+
+        addSection(host, "fileCrasher", "File Crasher",
+                "Inserts malformed metadata that breaks naive decompilers. Off by default - some JVMs reject it.",
+                false, "Risky", Collections.emptyList());
+
+        addSection(unusedHost, "native", "Native",
+                "Converts selected methods to native implementations.",
+                false, "Unwired", Collections.emptyList());
     }
 
-    private void addTransformerSection(JPanel panel, String id, String name,
-                                       List<TransformerOptionDefinition> options,
-                                       boolean defaultEnabled) {
-        TransformerSection section = new TransformerSection(id, name, options, defaultEnabled, null);
-        transformerSections.put(id, section);
-        panel.add(section);
+    // ------------------------------------------------------------------
+    // Layout helpers
+    // ------------------------------------------------------------------
+
+    private void addCategory(JPanel host, String label, String hint) {
+        JPanel header = new JPanel();
+        header.setOpaque(false);
+        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_M, 4, UiTheme.PAD_S, 4));
+
+        JLabel title = new JLabel(label.toUpperCase());
+        title.setForeground(UiTheme.TEXT_MUTED);
+        title.setFont(UiTheme.font(Font.BOLD, 11f));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.add(title);
+
+        if (hint != null && !hint.isEmpty()) {
+            JLabel sub = new JLabel(hint);
+            sub.setForeground(UiTheme.TEXT_MUTED);
+            sub.setFont(UiTheme.font(Font.PLAIN, 11f));
+            sub.setAlignmentX(Component.LEFT_ALIGNMENT);
+            sub.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+            header.add(sub);
+        }
+        host.add(header);
     }
 
-    private void addTransformerSection(JPanel panel, String id, String name,
-                                       List<TransformerOptionDefinition> options,
-                                       boolean defaultEnabled,
-                                       String description) {
-        TransformerSection section = new TransformerSection(id, name, options, defaultEnabled, description);
-        transformerSections.put(id, section);
-        panel.add(section);
+    private void addSection(JPanel host, String id, String name, String description,
+                            boolean defaultEnabled, String tag,
+                            List<TransformerOptionDefinition> options) {
+        TransformerCard card = new TransformerCard(id, name, description, defaultEnabled, tag, options, this::schedulePersist);
+        sections.put(id, card);
+        host.add(card);
+        host.add(Box.createVerticalStrut(UiTheme.PAD_S));
     }
 
-    private void addSimpleTransformerSection(JPanel panel, String id, String name,
-                                             boolean defaultEnabled,
-                                             String description) {
-        addTransformerSection(panel, id, name, Collections.emptyList(), defaultEnabled, description);
-    }
+    // ------------------------------------------------------------------
+    // Persistence
+    // ------------------------------------------------------------------
 
-
-    // Inner class representing a transformer section
-    private static class TransformerSection extends JPanel {
-        private final String id;
-        private final JCheckBox enabledBox;
-        private final List<TransformerOptionDefinition> options;
-        private final Map<String, JComponent> optionComponents;
-        private final JPanel optionsPanel;
-        private final JButton toggleButton;
-        private boolean optionsVisible = false;
-
-        public TransformerSection(String id, String name,
-                                  List<TransformerOptionDefinition> options,
-                                  boolean defaultEnabled, String description) {
-            this.id = id;
-            this.options = options;
-            this.optionComponents = new HashMap<>();
-
-            setLayout(new BorderLayout(5, 5));
-            setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createEmptyBorder(0, 0, 0, 0),
-                BorderFactory.createCompoundBorder(
-                    BorderFactory.createRaisedBevelBorder(),
-                    BorderFactory.createEmptyBorder(8, 8, 8, 8)
-                )
-            ));
-
-            // Create header panel with checkbox and toggle button
-            JPanel headerPanel = new JPanel(new BorderLayout());
-            enabledBox = new JCheckBox(name);
-            enabledBox.setSelected(defaultEnabled);
-            enabledBox.setFont(enabledBox.getFont().deriveFont(Font.BOLD));
-
-            // Add description if provided
-            if (description != null && !description.trim().isEmpty()) {
-                JTextArea descriptionArea = new JTextArea(description);
-                descriptionArea.setEditable(false);
-                descriptionArea.setWrapStyleWord(true);
-                descriptionArea.setLineWrap(true);
-                descriptionArea.setBackground(getBackground());
-                descriptionArea.setForeground(Color.GRAY);
-                descriptionArea.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 5));
-                descriptionArea.setFont(UIManager.getFont("Label.font").deriveFont(11f));
-
-                // Calculate preferred height based on content
-                FontMetrics fm = descriptionArea.getFontMetrics(descriptionArea.getFont());
-                int availableWidth = 400;
-                int lineHeight = fm.getHeight();
-
-                // Create a temporary text area to calculate wrapped height
-                JTextArea temp = new JTextArea(description);
-                temp.setLineWrap(true);
-                temp.setWrapStyleWord(true);
-                temp.setSize(availableWidth, Integer.MAX_VALUE);
-                int preferredHeight = Math.min(3 * lineHeight, temp.getPreferredSize().height);
-
-                descriptionArea.setPreferredSize(new Dimension(availableWidth, preferredHeight));
-                headerPanel.add(descriptionArea, BorderLayout.SOUTH);
-            }
-
-            headerPanel.add(enabledBox, BorderLayout.WEST);
-
-            if (!options.isEmpty()) {
-                toggleButton = new JButton("▼");
-                toggleButton.setPreferredSize(new Dimension(50, 25));
-                toggleButton.addActionListener(e -> toggleOptions());
-                headerPanel.add(toggleButton, BorderLayout.EAST);
-            } else {
-                toggleButton = null;
-            }
-
-            add(headerPanel, BorderLayout.NORTH);
-
-            // Create options panel
-            if (!options.isEmpty()) {
-                optionsPanel = new JPanel();
-                optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
-                optionsPanel.setBorder(BorderFactory.createEmptyBorder(10, 20, 5, 5));
-
-                for (TransformerOptionDefinition option : options) {
-                    JPanel optionPanel = createOptionPanel(option);
-                    optionsPanel.add(optionPanel);
-                    optionPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, optionPanel.getPreferredSize().height));
-                    optionPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
-                }
-
-                optionsPanel.setVisible(false);
-                add(optionsPanel, BorderLayout.CENTER);
-            } else {
-                optionsPanel = null;
-            }
-
-            // Ensure proper initial sizing
-            SwingUtilities.invokeLater(() -> {
-                invalidate();
-                setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-                revalidate();
-            });
-        }
-
-        private JPanel createOptionPanel(TransformerOptionDefinition option) {
-            JPanel panel = new JPanel(new BorderLayout(5, 5));
-            JLabel label = new JLabel(option.getLabel() + ":");
-            panel.add(label, BorderLayout.WEST);
-
-            JComponent inputComponent;
-            switch (option.getType()) {
-                case ENUM:
-                    JComboBox<String> comboBox = new JComboBox<>(
-                            option.getEnumValues().toArray(new String[0])
-                    );
-                    comboBox.setSelectedItem(option.getDefaultValue());
-                    inputComponent = comboBox;
-                    break;
-
-                case INTEGER:
-                    JSpinner spinner = new JSpinner(
-                            new SpinnerNumberModel(((Integer) option.getDefaultValue()).doubleValue(), 0, 100, 1)
-                    );
-                    inputComponent = spinner;
-                    break;
-
-                case BOOLEAN:
-                    JCheckBox checkBox = new JCheckBox();
-                    checkBox.setSelected((Boolean)option.getDefaultValue());
-                    inputComponent = checkBox;
-                    break;
-
-                default:
-                case STRING:
-                    JTextField textField = new JTextField(
-                            option.getDefaultValue().toString(), 15
-                    );
-                    inputComponent = textField;
-                    break;
-            }
-
-            // Add tooltip with description
-            if (option.getDescription() != null) {
-                label.setToolTipText(option.getDescription());
-                inputComponent.setToolTipText(option.getDescription());
-            }
-
-            optionComponents.put(option.getKey(), inputComponent);
-            panel.add(inputComponent, BorderLayout.CENTER);
-            return panel;
-        }
-
-        private void toggleOptions() {
-            optionsVisible = !optionsVisible;
-            optionsPanel.setVisible(optionsVisible);
-            toggleButton.setText(optionsVisible ? "▲" : "▼");
-            
-            // Update the maximum size of the section
-            revalidate();
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-            
-            // Request parent container to update layout
-            Container parent = getParent();
-            if (parent != null) {
-                parent.revalidate();
-                parent.repaint();
-            }
-        }
-
-        public String getId() {
-            return id;
-        }
-
-        public boolean isEnabled() {
-            return enabledBox.isSelected();
-        }
-
-        public Map<String, Object> getOptionValues() {
-            Map<String, Object> values = new HashMap<>();
-            for (TransformerOptionDefinition option : options) {
-                JComponent component = optionComponents.get(option.getKey());
-                if (component instanceof JComboBox) {
-                    values.put(option.getKey(), ((JComboBox<?>)component).getSelectedItem());
-                } else if (component instanceof JSpinner) {
-                    values.put(option.getKey(), ((JSpinner)component).getValue());
-                } else if (component instanceof JCheckBox) {
-                    values.put(option.getKey(), ((JCheckBox)component).isSelected());
-                } else if (component instanceof JTextField) {
-                    values.put(option.getKey(), ((JTextField)component).getText());
-                }
-            }
-            return values;
-        }
-
-        public void setOptionValue(String key, Object value) {
-            JComponent component = optionComponents.get(key);
-            if (component instanceof JComboBox) {
-                ((JComboBox<?>)component).setSelectedItem(value);
-            } else if (component instanceof JSpinner) {
-                ((JSpinner)component).setValue(value);
-            } else if (component instanceof JCheckBox) {
-                ((JCheckBox)component).setSelected((Boolean)value);
-            } else if (component instanceof JTextField) {
-                ((JTextField)component).setText(value.toString());
-            }
-        }
-    }
-
-    // Configuration save/load methods remain the same but updated to handle new option types
     public void saveConfiguration() {
-        SkidfuscatorConfig config = new SkidfuscatorConfig();
-
-        // Add global exemptions
-        List<String> globalExempts = Arrays.asList(
-                "class{^(?!(dev\\/skidfuscator)).*$}",
-                "class{^jghost\\/}",
-                "class{Dump}"
-        );
-        config.setGlobalExemptions(globalExempts);
-
-        // Add transformer configurations
-        for (TransformerSection section : transformerSections.values()) {
-            Map<String, Object> options = section.getOptionValues();
-            config.addTransformer(
-                    section.getId(),
-                    section.isEnabled(),
-                    options,
-                    Collections.emptyList()  // Exemptions handled globally
-            );
-        }
-
-        try (FileWriter writer = new FileWriter(defaultConfigFile)) {
-            writer.write(config.renderConfig());
-            JOptionPane.showMessageDialog(this,
-                    "Configuration saved successfully",
-                    "Success",
-                    JOptionPane.INFORMATION_MESSAGE);
+        try {
+            writeConfiguration(defaultConfigFile, Collections.emptyList());
+            JOptionPane.showMessageDialog(this, "Configuration saved.", "Saved", JOptionPane.INFORMATION_MESSAGE);
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this,
-                    "Error saving configuration: " + e.getMessage(),
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Error saving configuration: " + e.getMessage(),
+                    "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
     public void loadConfiguration() {
+        loadConfiguration(true);
+    }
+
+    public String renderConfiguration(List<String> globalExclusions) {
+        return buildConfiguration(globalExclusions).renderConfig();
+    }
+
+    public boolean isProGuardClassRenamingEnabled() {
+        TransformerCard card = sections.get("proGuard");
+        return card != null && card.isToggled();
+    }
+
+    public Map<String, Object> getProGuardOptions() {
+        TransformerCard card = sections.get("proGuard");
+        return card == null ? Collections.emptyMap() : card.optionValues();
+    }
+
+    private SkidfuscatorConfig buildConfiguration(List<String> globalExclusions) {
+        SkidfuscatorConfig config = new SkidfuscatorConfig();
+        config.setGlobalExemptions(DEFAULT_GLOBAL_EXEMPTIONS);
+        config.setGlobalExclusions(globalExclusions);
+
+        for (TransformerCard card : sections.values()) {
+            config.addTransformer(card.id, card.isToggled(), card.optionValues(), Collections.emptyList());
+        }
+
+        return config;
+    }
+
+    private void writeConfiguration(File file, List<String> globalExclusions) throws IOException {
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(renderConfiguration(globalExclusions));
+        }
+    }
+
+    private void schedulePersist() {
+        if (loading) return;
+        SwingUtilities.invokeLater(this::persistConfiguration);
+    }
+
+    private void persistConfiguration() {
+        if (loading) return;
+        try {
+            writeConfiguration(defaultConfigFile, Collections.emptyList());
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void loadConfiguration(boolean userInitiated) {
         if (!defaultConfigFile.exists()) {
-            JOptionPane.showMessageDialog(this,
-                    "No configuration file found at " + defaultConfigFile.getAbsolutePath(),
-                    "Warning",
-                    JOptionPane.WARNING_MESSAGE);
+            if (userInitiated) {
+                JOptionPane.showMessageDialog(this,
+                        "No configuration file found at " + defaultConfigFile.getAbsolutePath(),
+                        "Warning", JOptionPane.WARNING_MESSAGE);
+            }
             return;
         }
 
+        loading = true;
         try {
             Config config = ConfigFactory.parseFile(defaultConfigFile);
-
-            for (TransformerSection section : transformerSections.values()) {
-                String id = section.getId();
-                if (config.hasPath(id)) {
-                    Config transformerConfig = config.getConfig(id);
-                    section.setEnabled(transformerConfig.getBoolean("enabled"));
-
-                    // Load additional options if they exist
-                    if (transformerConfig.hasPath("options")) {
-                        Config options = transformerConfig.getConfig("options");
-                        for (Map.Entry<String, ConfigValue> entry : options.entrySet()) {
-                            section.setOptionValue(entry.getKey(), entry.getValue().unwrapped().toString());
-                        }
+            for (TransformerCard card : sections.values()) {
+                if (config.hasPath(card.id)) {
+                    Config tc = config.getConfig(card.id);
+                    if (tc.hasPath("enabled")) {
+                        card.setToggled(tc.getBoolean("enabled"));
+                    }
+                    for (Map.Entry<String, ConfigValue> entry : tc.entrySet()) {
+                        if ("enabled".equals(entry.getKey())
+                                || "exempt".equals(entry.getKey())
+                                || "exclude".equals(entry.getKey())) continue;
+                        card.setOption(entry.getKey(), entry.getValue().unwrapped());
                     }
                 }
             }
-
-            JOptionPane.showMessageDialog(this,
-                    "Configuration loaded successfully",
-                    "Success",
-                    JOptionPane.INFORMATION_MESSAGE);
+            if (userInitiated) {
+                JOptionPane.showMessageDialog(this, "Configuration loaded.", "Loaded", JOptionPane.INFORMATION_MESSAGE);
+            }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    "Error loading configuration: " + e.getMessage(),
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE);
+            if (userInitiated) {
+                JOptionPane.showMessageDialog(this, "Error loading configuration: " + e.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        } finally {
+            loading = false;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Card component
+    // ------------------------------------------------------------------
+
+    private static class TransformerCard extends Card {
+
+        final String id;
+        private final ToggleSwitch toggle;
+        private final List<TransformerOptionDefinition> options;
+        private final Map<String, JComponent> optionInputs = new HashMap<>();
+        private final JPanel optionsPanel;
+        private final JLabel chevron;
+        private final Runnable onChange;
+        private boolean expanded;
+
+        TransformerCard(String id, String name, String description, boolean enabled, String tag,
+                        List<TransformerOptionDefinition> options, Runnable onChange) {
+            super(new BorderLayout(UiTheme.PAD_M, UiTheme.PAD_S));
+            this.id = id;
+            this.options = options;
+            this.onChange = onChange == null ? () -> {} : onChange;
+            setHoverable(true);
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, Short.MAX_VALUE));
+            setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            // Header row
+            JPanel header = new JPanel(new BorderLayout(UiTheme.PAD_M, 0));
+            header.setOpaque(false);
+
+            toggle = new ToggleSwitch(enabled);
+            toggle.addChangeListener(v -> this.onChange.run());
+            JPanel toggleWrap = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            toggleWrap.setOpaque(false);
+            toggleWrap.add(toggle);
+            header.add(toggleWrap, BorderLayout.WEST);
+
+            JPanel titleStack = new JPanel();
+            titleStack.setOpaque(false);
+            titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+
+            JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, UiTheme.PAD_S, 0));
+            titleRow.setOpaque(false);
+            titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            JLabel title = new JLabel(name);
+            title.setFont(UiTheme.font(Font.BOLD, 13f));
+            title.setForeground(UiTheme.TEXT_PRIMARY);
+            titleRow.add(title);
+
+            if (tag != null && !tag.isEmpty()) {
+                StatusBadge.Kind kind;
+                switch (tag.toLowerCase()) {
+                    case "enterprise": kind = StatusBadge.Kind.INFO; break;
+                    case "risky":      kind = StatusBadge.Kind.DANGER; break;
+                    case "beta":       kind = StatusBadge.Kind.WARNING; break;
+                    default:           kind = StatusBadge.Kind.NEUTRAL;
+                }
+                titleRow.add(new StatusBadge(kind, tag));
+            }
+            titleStack.add(titleRow);
+
+            JLabel desc = new JLabel("<html><div style='width:520px'>" + description + "</div></html>");
+            desc.setFont(UiTheme.font(Font.PLAIN, 11f));
+            desc.setForeground(UiTheme.TEXT_SECONDARY);
+            desc.setAlignmentX(Component.LEFT_ALIGNMENT);
+            titleStack.add(desc);
+            header.add(titleStack, BorderLayout.CENTER);
+
+            chevron = new JLabel(options.isEmpty() ? " " : "▾");
+            chevron.setForeground(UiTheme.TEXT_MUTED);
+            chevron.setFont(UiTheme.font(Font.PLAIN, 14f));
+            chevron.setCursor(new Cursor(options.isEmpty() ? Cursor.DEFAULT_CURSOR : Cursor.HAND_CURSOR));
+            chevron.setBorder(BorderFactory.createEmptyBorder(0, UiTheme.PAD_M, 0, UiTheme.PAD_S));
+            header.add(chevron, BorderLayout.EAST);
+            if (!options.isEmpty()) {
+                chevron.addMouseListener(new MouseAdapter() {
+                    @Override public void mouseClicked(MouseEvent e) { toggleExpand(); }
+                });
+            }
+
+            add(header, BorderLayout.NORTH);
+
+            if (options.isEmpty()) {
+                optionsPanel = null;
+            } else {
+                optionsPanel = new JPanel(new GridBagLayout());
+                optionsPanel.setOpaque(false);
+                optionsPanel.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_M, 60, 0, 0));
+                buildOptions();
+                optionsPanel.setVisible(false);
+                add(optionsPanel, BorderLayout.CENTER);
+            }
+
+            installHoverTracking();
+        }
+
+        private void installHoverTracking() {
+            MouseAdapter h = new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { setHovered(true); }
+                @Override public void mouseExited (MouseEvent e) { setHovered(false); }
+            };
+            addMouseListener(h);
+        }
+
+        private void buildOptions() {
+            GridBagConstraints g = new GridBagConstraints();
+            g.fill = GridBagConstraints.HORIZONTAL;
+            g.insets = new Insets(4, 0, 4, 8);
+            int row = 0;
+            for (TransformerOptionDefinition option : options) {
+                JLabel label = new JLabel(option.getLabel() + ":");
+                label.setFont(UiTheme.font(Font.PLAIN, 12f));
+                label.setForeground(UiTheme.TEXT_SECONDARY);
+
+                JComponent input = inputFor(option);
+                if (option.getDescription() != null) {
+                    label.setToolTipText(option.getDescription());
+                    input.setToolTipText(option.getDescription());
+                }
+                optionInputs.put(option.getKey(), input);
+                installChangePersistence(input);
+
+                g.gridx = 0; g.gridy = row; g.weightx = 0;
+                optionsPanel.add(label, g);
+                g.gridx = 1; g.weightx = 1;
+                optionsPanel.add(input, g);
+                row++;
+            }
+        }
+
+        private void installChangePersistence(JComponent input) {
+            if (input instanceof JComboBox) {
+                ((JComboBox<?>) input).addActionListener(e -> onChange.run());
+            } else if (input instanceof JSpinner) {
+                ((JSpinner) input).addChangeListener(e -> onChange.run());
+            } else if (input instanceof JCheckBox) {
+                ((JCheckBox) input).addActionListener(e -> onChange.run());
+            } else if (input instanceof JTextField) {
+                ((JTextField) input).getDocument().addDocumentListener(new DocumentListener() {
+                    @Override public void insertUpdate(DocumentEvent e) { onChange.run(); }
+                    @Override public void removeUpdate(DocumentEvent e) { onChange.run(); }
+                    @Override public void changedUpdate(DocumentEvent e) { onChange.run(); }
+                });
+            } else if (input instanceof JTextArea) {
+                ((JTextArea) input).getDocument().addDocumentListener(new DocumentListener() {
+                    @Override public void insertUpdate(DocumentEvent e) { onChange.run(); }
+                    @Override public void removeUpdate(DocumentEvent e) { onChange.run(); }
+                    @Override public void changedUpdate(DocumentEvent e) { onChange.run(); }
+                });
+            }
+        }
+
+        private JComponent inputFor(TransformerOptionDefinition option) {
+            switch (option.getType()) {
+                case ENUM: {
+                    JComboBox<String> combo = new JComboBox<>(option.getEnumValues().toArray(new String[0]));
+                    combo.setSelectedItem(option.getDefaultValue());
+                    return combo;
+                }
+                case INTEGER: {
+                    Object def = option.getDefaultValue();
+                    double v = (def instanceof Number) ? ((Number) def).doubleValue() : 0d;
+                    return new JSpinner(new SpinnerNumberModel(v, 0, 100, 1));
+                }
+                case BOOLEAN: {
+                    JCheckBox cb = new JCheckBox();
+                    cb.setSelected(Boolean.TRUE.equals(option.getDefaultValue()));
+                    cb.setOpaque(false);
+                    return cb;
+                }
+                case TEXT: {
+                    JTextArea area = new JTextArea(String.valueOf(option.getDefaultValue()), 5, 28);
+                    area.setLineWrap(true);
+                    area.setWrapStyleWord(true);
+                    area.setFont(UiTheme.font(Font.PLAIN, 12f));
+                    area.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+                    area.setPreferredSize(new Dimension(420, 110));
+                    return area;
+                }
+                case STRING:
+                default: {
+                    return new JTextField(String.valueOf(option.getDefaultValue()), 15);
+                }
+            }
+        }
+
+        private void toggleExpand() {
+            if (optionsPanel == null) return;
+            expanded = !expanded;
+            optionsPanel.setVisible(expanded);
+            chevron.setText(expanded ? "▴" : "▾");
+            revalidate();
+            repaint();
+            if (getParent() != null) {
+                getParent().revalidate();
+                getParent().repaint();
+            }
+        }
+
+        boolean isToggled() { return toggle.isSelected(); }
+        void setToggled(boolean v) { toggle.setSelected(v); }
+
+        Map<String, Object> optionValues() {
+            Map<String, Object> values = new HashMap<>();
+            for (TransformerOptionDefinition opt : options) {
+                JComponent c = optionInputs.get(opt.getKey());
+                if      (c instanceof JComboBox)  values.put(opt.getKey(), ((JComboBox<?>) c).getSelectedItem());
+                else if (c instanceof JSpinner)   values.put(opt.getKey(), ((JSpinner) c).getValue());
+                else if (c instanceof JCheckBox)  values.put(opt.getKey(), ((JCheckBox) c).isSelected());
+                else if (c instanceof JTextArea)  values.put(opt.getKey(), ((JTextArea) c).getText());
+                else if (c instanceof JTextField) values.put(opt.getKey(), ((JTextField) c).getText());
+            }
+            return values;
+        }
+
+        void setOption(String key, Object value) {
+            JComponent c = optionInputs.get(key);
+            if      (c instanceof JComboBox)  ((JComboBox<?>) c).setSelectedItem(value);
+            else if (c instanceof JSpinner)   ((JSpinner) c).setValue(value);
+            else if (c instanceof JCheckBox)  ((JCheckBox) c).setSelected(Boolean.parseBoolean(String.valueOf(value)));
+            else if (c instanceof JTextArea)  ((JTextArea) c).setText(String.valueOf(value));
+            else if (c instanceof JTextField) ((JTextField) c).setText(String.valueOf(value));
         }
     }
 }

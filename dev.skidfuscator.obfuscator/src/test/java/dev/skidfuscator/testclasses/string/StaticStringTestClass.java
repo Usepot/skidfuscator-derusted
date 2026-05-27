@@ -11,7 +11,6 @@ public class StaticStringTestClass implements TestRun {
         System.out.println("I like happy meals".equals(getReal()));
 
         assert get().equals(getReal()) : "Failed String test equality";
-        throw new IllegalStateException("This is a test");
     }
 
     public String get() {

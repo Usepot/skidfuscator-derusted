@@ -2,19 +2,51 @@ package dev.skidfuscator.obfuscator.gui;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.SkidfuscatorSession;
 import dev.skidfuscator.obfuscator.creator.SkidApplicationClassSource;
+import dev.skidfuscator.obfuscator.gui.ui.Card;
+import dev.skidfuscator.obfuscator.gui.ui.SecondaryButton;
+import dev.skidfuscator.obfuscator.gui.ui.SectionHeader;
+import dev.skidfuscator.obfuscator.gui.ui.StatusBadge;
+import dev.skidfuscator.obfuscator.gui.ui.UiTheme;
 import org.mapleir.app.service.ApplicationClassSource;
 import org.mapleir.app.service.LibraryClassSource;
 
-import javax.swing.*;
-import javax.swing.border.EtchedBorder;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.io.*;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.Timer;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FileDialog;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Frame;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -22,421 +54,340 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.swing.Timer;
 
 public class LibrariesPanel extends JPanel implements SkidPanel {
-    private final JList<String> libraryList;
-    private final DefaultListModel<String> libraryModel;
-    private final JList<String> missingClassesList;
-    private final DefaultListModel<String> missingClassesModel;
-    private final JButton scanButton;
-    private final JButton scanSelectedButton;
-    private final Path libraryFolder;
-    private SkidApplicationClassSource classSource;
-    private final Gson gson;
-    private final JProgressBar progressBar;
-    private final JLabel statusLabel;
+
     private final ConfigPanel configPanel;
+    private final Path libraryFolder;
+    private final Gson gson = new Gson();
+
+    private final DefaultListModel<String> libraryModel        = new DefaultListModel<>();
+    private final DefaultListModel<String> missingClassesModel = new DefaultListModel<>();
+    private final JList<String> libraryList        = new JList<>(libraryModel);
+    private final JList<String> missingClassesList = new JList<>(missingClassesModel);
+
+    private final JButton addButton    = new SecondaryButton("Add jar…");
+    private final JButton removeButton = new SecondaryButton("Remove");
+    private final JButton rescanButton = new SecondaryButton("Rescan");
+    private final JButton fetchButton  = new SecondaryButton("Find on Maven");
+
+    private final JProgressBar progressBar = new JProgressBar();
+    private final StatusBadge statusBadge  = new StatusBadge(StatusBadge.Kind.NEUTRAL, "Idle");
+    private final JLabel statusLabel       = new JLabel(" ");
+
+    private SkidApplicationClassSource classSource;
 
     public LibrariesPanel(ConfigPanel configPanel, SkidApplicationClassSource classSource) {
         this.configPanel = configPanel;
         this.classSource = classSource;
-        this.gson = new Gson();
-        
-        // Initialize library folder
+
         String configLibPath = configPanel.getLibraryPath();
         if (configLibPath != null && !configLibPath.isEmpty()) {
             this.libraryFolder = Paths.get(configLibPath);
         } else {
             this.libraryFolder = Paths.get(System.getProperty("user.home"), ".ssvm", "libs");
         }
-        
-        // Create library folder if it doesn't exist
-        try {
-            Files.createDirectories(libraryFolder);
-        } catch (IOException e) {
-            Skidfuscator.LOGGER.error("Failed to create library folder", e);
-        }
+        try { Files.createDirectories(libraryFolder); }
+        catch (IOException e) { Skidfuscator.LOGGER.error("Failed to create library folder", e); }
 
-        setLayout(new BorderLayout(10, 10));
-        setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createEtchedBorder(EtchedBorder.RAISED),
-                        "Libraries",
-                        javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                        javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                        new Font("Segoe UI", Font.BOLD, 16)
-                ),
-                BorderFactory.createEmptyBorder(20, 10, 10, 10)
-        ));
+        setLayout(new BorderLayout());
+        setOpaque(false);
 
-        // Create library list panel with buttons
-        JPanel libraryListPanel = new JPanel(new BorderLayout());
-        libraryListPanel.setBorder(BorderFactory.createTitledBorder("Current Libraries"));
-        
-        // Create library list
-        libraryModel = new DefaultListModel<>();
-        libraryList = new JList<>(libraryModel);
-        libraryList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        JScrollPane libraryScrollPane = new JScrollPane(libraryList);
+        add(new SectionHeader(
+                "Libraries",
+                "Detected dependency jars and the classes Skidfuscator still cannot resolve."),
+                BorderLayout.NORTH);
 
-        // Create library control buttons
-        JPanel libraryControlPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton addButton = new JButton("Add Library");
-        JButton removeButton = new JButton("Remove Library");
-        
-        addButton.addActionListener(e -> addManualLibrary());
-        removeButton.addActionListener(e -> removeManualLibrary());
-        
-        // Enable/disable remove button based on selection
-        libraryList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                removeButton.setEnabled(libraryList.getSelectedValue() != null);
-            }
-        });
-        removeButton.setEnabled(false);
-        
-        libraryControlPanel.add(addButton);
-        libraryControlPanel.add(removeButton);
-        
-        // Add components to library panel
-        libraryListPanel.add(libraryScrollPane, BorderLayout.CENTER);
-        libraryListPanel.add(libraryControlPanel, BorderLayout.SOUTH);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                wrapList("Detected libraries", libraryList, librariesToolbar()),
+                wrapList("Missing classes",   missingClassesList, missingToolbar()));
+        split.setResizeWeight(0.5);
+        split.setBorder(BorderFactory.createEmptyBorder());
+        split.setOpaque(false);
+        split.setDividerSize(6);
 
-        // Create missing classes panel with side panel
-        JPanel missingClassesPanel = new JPanel(new BorderLayout());
-        missingClassesPanel.setBorder(BorderFactory.createTitledBorder("Missing Classes"));
-        missingClassesModel = new DefaultListModel<>();
-        missingClassesList = new JList<>(missingClassesModel);
-        missingClassesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        JScrollPane missingScrollPane = new JScrollPane(missingClassesList);
-        missingClassesPanel.add(missingScrollPane, BorderLayout.CENTER);
+        add(split, BorderLayout.CENTER);
+        add(buildStatusBar(), BorderLayout.SOUTH);
 
-        // Create side panel for selected class actions
-        JPanel sidePanel = new JPanel();
-        sidePanel.setLayout(new BoxLayout(sidePanel, BoxLayout.Y_AXIS));
-        sidePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        sidePanel.setPreferredSize(new Dimension(120, 0));
-
-        scanSelectedButton = new JButton("Scan Class");
-        scanSelectedButton.setEnabled(false);
-        scanSelectedButton.setAlignmentX(Component.CENTER_ALIGNMENT);
-        scanSelectedButton.addActionListener(e -> {
-            String selectedClass = missingClassesList.getSelectedValue();
-            if (selectedClass != null) {
-                searchMavenCentral(selectedClass, scanSelectedButton);
-            }
-        });
-
-        // Add selection listener to enable/disable scan button
-        missingClassesList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                scanSelectedButton.setEnabled(missingClassesList.getSelectedValue() != null);
-            }
-        });
-
-        sidePanel.add(Box.createVerticalGlue());
-        sidePanel.add(scanSelectedButton);
-        sidePanel.add(Box.createVerticalGlue());
-
-        missingClassesPanel.add(sidePanel, BorderLayout.EAST);
-
-        // Create split pane for lists
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, libraryListPanel, missingClassesPanel);
-        splitPane.setResizeWeight(0.5);
-
-        // Create status panel
-        JPanel statusPanel = new JPanel(new BorderLayout(5, 5));
-        statusPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        
-        progressBar = new JProgressBar();
-        progressBar.setStringPainted(true);
-        progressBar.setVisible(false);
-        
-        statusLabel = new JLabel(" ");
-        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        
-        statusPanel.add(progressBar, BorderLayout.CENTER);
-        statusPanel.add(statusLabel, BorderLayout.SOUTH);
-
-        // Create button panel
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        scanButton = new JButton("Rescan");
-        scanButton.addActionListener(this::onScanButtonClicked);
-        buttonPanel.add(scanButton);
-
-        // Create bottom panel for status and buttons
-        JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(statusPanel, BorderLayout.CENTER);
-        bottomPanel.add(buttonPanel, BorderLayout.EAST);
-
-        // Add components to panel
-        add(splitPane, BorderLayout.CENTER);
-        add(bottomPanel, BorderLayout.SOUTH);
-
-        // Analyze the input jar if specified in config
+        wireSelection();
     }
 
+    // ------------------------------------------------------------------
+    // Sub-components
+    // ------------------------------------------------------------------
+
+    private Card wrapList(String title, JList<String> list, JComponent toolbar) {
+        Card card = new Card(new BorderLayout(0, UiTheme.PAD_S));
+
+        JPanel header = new JPanel(new BorderLayout());
+        header.setOpaque(false);
+        JLabel label = new JLabel(title);
+        label.setForeground(UiTheme.TEXT_PRIMARY);
+        label.setFont(UiTheme.font(Font.BOLD, 13f));
+        header.add(label, BorderLayout.WEST);
+        header.add(toolbar, BorderLayout.EAST);
+        card.add(header, BorderLayout.NORTH);
+
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setBackground(UiTheme.CONTENT_BG);
+        list.setForeground(UiTheme.TEXT_PRIMARY);
+        list.setFont(UiTheme.font(Font.PLAIN, 12f));
+        list.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        list.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index,
+                                                                     boolean isSelected, boolean cellHasFocus) {
+                JLabel c = (JLabel) super.getListCellRendererComponent(l, value, index, isSelected, cellHasFocus);
+                c.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+                c.setBackground(isSelected ? new Color(UiTheme.ACCENT.getRed(), UiTheme.ACCENT.getGreen(), UiTheme.ACCENT.getBlue(), 80)
+                        : UiTheme.CONTENT_BG);
+                c.setForeground(UiTheme.TEXT_PRIMARY);
+                return c;
+            }
+        });
+
+        JScrollPane scroll = new JScrollPane(list);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        card.add(scroll, BorderLayout.CENTER);
+        return card;
+    }
+
+    private JComponent librariesToolbar() {
+        JPanel p = new JPanel(new FlowLayout(FlowLayout.RIGHT, UiTheme.PAD_S, 0));
+        p.setOpaque(false);
+        addButton.addActionListener(e -> addManualLibrary());
+        removeButton.addActionListener(e -> removeManualLibrary());
+        removeButton.setEnabled(false);
+        p.add(addButton);
+        p.add(removeButton);
+        return p;
+    }
+
+    private JComponent missingToolbar() {
+        JPanel p = new JPanel(new FlowLayout(FlowLayout.RIGHT, UiTheme.PAD_S, 0));
+        p.setOpaque(false);
+        fetchButton.setEnabled(false);
+        fetchButton.addActionListener(e -> {
+            String cls = missingClassesList.getSelectedValue();
+            if (cls != null) searchMavenCentral(cls);
+        });
+        rescanButton.addActionListener(e -> analyzeConfigJar());
+        p.add(fetchButton);
+        p.add(rescanButton);
+        return p;
+    }
+
+    private void wireSelection() {
+        libraryList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) removeButton.setEnabled(libraryList.getSelectedValue() != null);
+        });
+        missingClassesList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) fetchButton.setEnabled(missingClassesList.getSelectedValue() != null);
+        });
+    }
+
+    private JComponent buildStatusBar() {
+        JPanel bar = new JPanel(new BorderLayout(UiTheme.PAD_M, 0));
+        bar.setOpaque(false);
+        bar.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_M, 0, 0, 0));
+
+        JPanel left = new JPanel();
+        left.setOpaque(false);
+        left.setLayout(new BoxLayout(left, BoxLayout.X_AXIS));
+        left.add(statusBadge);
+        left.add(Box.createHorizontalStrut(UiTheme.PAD_M));
+        statusLabel.setForeground(UiTheme.TEXT_SECONDARY);
+        statusLabel.setFont(UiTheme.font(Font.PLAIN, 12f));
+        left.add(statusLabel);
+        bar.add(left, BorderLayout.WEST);
+
+        progressBar.setStringPainted(false);
+        progressBar.setVisible(false);
+        progressBar.setPreferredSize(new Dimension(240, 6));
+        bar.add(progressBar, BorderLayout.EAST);
+        return bar;
+    }
+
+    // ------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------
+
+    @Override
     public void open() {
         SwingUtilities.invokeLater(this::analyzeConfigJar);
     }
 
-    private void setStatus(String message, boolean isError) {
-        statusLabel.setText(message);
-        statusLabel.setForeground(isError ? Color.RED : Color.WHITE);
-        if (isError) {
-            Skidfuscator.LOGGER.log(message);
-        } else {
-            Skidfuscator.LOGGER.log(message);
+    private void analyzeConfigJar() {
+        String inputPath = configPanel.getInputPath();
+        if (inputPath != null && !inputPath.isEmpty()) {
+            File f = new File(inputPath);
+            if (f.exists()) refreshInput(f);
         }
+    }
+
+    private void setStatus(StatusBadge.Kind kind, String badge, String message) {
+        statusBadge.set(kind, badge);
+        statusLabel.setText(message);
+        statusLabel.setForeground(kind == StatusBadge.Kind.DANGER ? UiTheme.DANGER : UiTheme.TEXT_SECONDARY);
+        Skidfuscator.LOGGER.log(message);
     }
 
     private void refreshMissingClassesList() {
         missingClassesModel.clear();
-        try {
-            classSource.getClassTree().verify();
-        } catch (Exception e) {
-        }
-        classSource.getMissingClassNames()
-                .forEach(missingClassesModel::addElement);
+        try { classSource.getClassTree().verify(); } catch (Exception ignored) {}
+        classSource.getMissingClassNames().forEach(missingClassesModel::addElement);
     }
 
     private void refreshLibraryList() {
         libraryModel.clear();
-        classSource.getLibraries()
-                .stream()
+        classSource.getLibraries().stream()
                 .map(LibraryClassSource::getParent)
                 .map(ApplicationClassSource::getName)
-                .filter(e -> !e.endsWith(".jmod")
-                        && !e.equalsIgnoreCase("rt.jar"))
+                .filter(n -> !n.endsWith(".jmod") && !n.equalsIgnoreCase("rt.jar"))
                 .forEach(libraryModel::addElement);
     }
 
     private void refreshInput(final File input) {
-        scanButton.setEnabled(false);
+        rescanButton.setEnabled(false);
         progressBar.setVisible(true);
         progressBar.setIndeterminate(true);
-        setStatus("Scanning JAR file...", false);
-        SwingWorker<List<String>, String> worker = new SwingWorker<>() {
-            @Override
-            protected void done() {
+        setStatus(StatusBadge.Kind.INFO, "Scanning", "Scanning jar…");
+
+        SwingWorker<List<String>, String> worker = new SwingWorker<List<String>, String>() {
+            @Override protected void done() {
                 try {
-                    List<String> missingClasses = get();
+                    List<String> missing = get();
                     missingClassesModel.clear();
-                    for (String missingClass : missingClasses) {
-                        missingClassesModel.addElement(missingClass);
-                    }
-                    setStatus("Found " + missingClasses.size() + " missing classes", false);
+                    missing.forEach(missingClassesModel::addElement);
+                    setStatus(missing.isEmpty() ? StatusBadge.Kind.SUCCESS : StatusBadge.Kind.WARNING,
+                            missing.isEmpty() ? "Resolved" : missing.size() + " missing",
+                            missing.isEmpty()
+                                    ? "All references resolved."
+                                    : "Found " + missing.size() + " missing classes.");
                 } catch (Exception ex) {
-                    setStatus("Error scanning JAR: " + ex.getMessage(), true);
+                    setStatus(StatusBadge.Kind.DANGER, "Error", "Error scanning jar: " + ex.getMessage());
                 } finally {
-                    scanButton.setEnabled(true);
+                    rescanButton.setEnabled(true);
                     progressBar.setVisible(false);
                 }
-
             }
 
-            @Override
-            protected void process(List<String> chunks) {
-                // Update status with the latest message
-                if (!chunks.isEmpty()) {
-                    setStatus(chunks.get(chunks.size() - 1), false);
-                }
+            @Override protected void process(List<String> chunks) {
+                if (!chunks.isEmpty()) statusLabel.setText(chunks.get(chunks.size() - 1));
             }
 
-            @Override
-            protected List<String> doInBackground() throws Exception {
-                publish("Initializing Skidfuscator...");
-                Skidfuscator skidfuscator = new Skidfuscator(SkidfuscatorSession.builder()
+            @Override protected List<String> doInBackground() throws Exception {
+                publish("Initialising Skidfuscator…");
+                Skidfuscator skid = new Skidfuscator(SkidfuscatorSession.builder()
                         .input(input)
                         .libs(libraryFolder.toFile().listFiles((dir, name) -> name.endsWith(".jar")))
                         .build());
-
-                publish("Importing JVM classes...");
-
-                publish("Analyzing JAR file...");
-                skidfuscator._importConfig();
-                classSource = skidfuscator._importClasspath();
-                final Set<LibraryClassSource> sources = skidfuscator._importJvm();
-                classSource.addLibraries(sources.toArray(new LibraryClassSource[0]));
+                publish("Importing classpath…");
+                skid._importConfig();
+                classSource = skid._importClasspath();
+                publish("Importing JVM modules…");
+                classSource.addLibraries(skid._importJvm().toArray(new LibraryClassSource[0]));
                 refreshLibraryList();
                 refreshMissingClassesList();
-
-                publish("Verifying class tree...");
-                try {
-                    classSource.getClassTree().verify();
-                } catch (Exception ex) {
-                    // Ignore verification errors as we want to find missing classes
-                }
-
+                publish("Verifying class tree…");
+                try { classSource.getClassTree().verify(); } catch (Exception ignored) {}
                 return classSource.getClassTree().getMissingClasses();
             }
         };
         worker.execute();
     }
 
-    private void onScanButtonClicked(ActionEvent e) {
-        /*JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
-            public boolean accept(File f) {
-                return f.isDirectory() || f.getName().toLowerCase().endsWith(".jar");
-            }
+    // ------------------------------------------------------------------
+    // Maven search / download
+    // ------------------------------------------------------------------
 
-            public String getDescription() {
-                return "JAR files (*.jar)";
-            }
-        });
-
-        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File selectedFile = fileChooser.getSelectedFile();
-            refreshInput(selectedFile);
-        }*/
-        analyzeConfigJar();
-    }
-
-    private void searchMavenCentral(String className, JButton sourceButton) {
-        sourceButton.setEnabled(false);
+    private void searchMavenCentral(String className) {
+        fetchButton.setEnabled(false);
         progressBar.setVisible(true);
         progressBar.setValue(0);
         progressBar.setIndeterminate(false);
-        progressBar.setStringPainted(true);
-        setStatus("Searching Maven Central for " + className + "...", false);
+        setStatus(StatusBadge.Kind.INFO, "Searching", "Searching Maven Central for " + className + "…");
 
-        // Start the fake progress updater
-        Timer progressTimer = new Timer(100, null);
-        final long startTime = System.currentTimeMillis();
-        final Random random = new Random();
-        final AtomicInteger currentProgress = new AtomicInteger(0);
-        
-        progressTimer.addActionListener(e -> {
-            long elapsed = System.currentTimeMillis() - startTime;
-            if (elapsed >= 15000) {
-                progressTimer.stop();
-                return;
-            }
-            
-            // Calculate target progress based on elapsed time (0-90%)
-            int targetProgress = (int) (elapsed * 90.0 / 15000.0);
-            
-            // Add some random variation
-            int currentValue = currentProgress.get();
-            if (currentValue < targetProgress) {
-                int increment = random.nextInt(3) + 1; // Random increment between 1-3
-                int newProgress = Math.min(currentValue + increment, targetProgress);
-                currentProgress.set(newProgress);
-                progressBar.setValue(newProgress);
-                
-                // Update status message occasionally
-                if (random.nextInt(10) == 0) {
-                    String[] messages = {
-                        "Searching Maven repositories...",
-                        "Analyzing class dependencies...",
-                        "Checking available versions...",
-                        "Processing search results...",
-                        "Querying Maven Central..."
-                    };
-                    setStatus(messages[random.nextInt(messages.length)], false);
-                }
+        Timer timer = new Timer(120, null);
+        final long start = System.currentTimeMillis();
+        final Random rand = new Random();
+        final AtomicInteger cur = new AtomicInteger(0);
+        timer.addActionListener(e -> {
+            long elapsed = System.currentTimeMillis() - start;
+            if (elapsed >= 15000) { timer.stop(); return; }
+            int target = (int) (elapsed * 90.0 / 15000.0);
+            int now = cur.get();
+            if (now < target) {
+                int next = Math.min(now + rand.nextInt(3) + 1, target);
+                cur.set(next);
+                progressBar.setValue(next);
             }
         });
 
-        SwingWorker<List<MavenArtifact>, String> worker = new SwingWorker<>() {
-            @Override
-            protected List<MavenArtifact> doInBackground() throws Exception {
-                String searchUrl = "https://search.maven.org/solrsearch/select?q=fc:" + URLEncoder.encode(className, StandardCharsets.UTF_8) +
-                        "&rows=20&wt=json&core=gav";
+        SwingWorker<List<MavenArtifact>, String> worker = new SwingWorker<List<MavenArtifact>, String>() {
+            @Override protected List<MavenArtifact> doInBackground() throws Exception {
+                String url = "https://search.maven.org/solrsearch/select?q=fc:" + URLEncoder.encode(className, StandardCharsets.UTF_8)
+                        + "&rows=20&wt=json&core=gav";
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(20000);
+                conn.setRequestProperty("User-Agent", "Skidfuscator Library Manager");
+                conn.setRequestProperty("Accept", "application/json");
 
-                HttpURLConnection connection = (HttpURLConnection) new URL(searchUrl).openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(20000); // 20 seconds timeout
-                connection.setReadTimeout(20000);    // 20 seconds timeout
-                connection.setRequestProperty("User-Agent", "Skidfuscator Library Manager");
-                connection.setRequestProperty("Accept", "application/json");
+                SwingUtilities.invokeLater(timer::start);
 
-                // Start the progress timer
-                SwingUtilities.invokeLater(progressTimer::start);
-
-                // Connect and read response in background
                 CompletableFuture<JsonObject> future = CompletableFuture.supplyAsync(() -> {
                     try {
-                        connection.connect();
-                        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                            throw new IOException("Server returned HTTP " + connection.getResponseCode() 
-                                    + ": " + connection.getResponseMessage());
+                        conn.connect();
+                        if (conn.getResponseCode() != HttpURLConnection.HTTP_OK)
+                            throw new IOException("HTTP " + conn.getResponseCode());
+                        try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                            return gson.fromJson(br, JsonObject.class);
                         }
-                        
-                        try (BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
-                            return gson.fromJson(reader, JsonObject.class);
-                        }
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
+                    } catch (Exception e) { throw new CompletionException(e); }
                 });
+                JsonObject resp;
+                try { resp = future.get(15, TimeUnit.SECONDS); }
+                catch (TimeoutException e) { throw new IOException("Connection timed out"); }
+                SwingUtilities.invokeLater(timer::stop);
 
-                // Wait for the response with timeout
-                JsonObject response;
-                try {
-                    response = future.get(15, TimeUnit.SECONDS);
-                } catch (TimeoutException e) {
-                    throw new IOException("Connection to Maven Central timed out");
-                }
-
-                // Stop the progress timer
-                SwingUtilities.invokeLater(progressTimer::stop);
-
-                JsonObject responseObj = response.getAsJsonObject("response");
-                JsonArray docs = responseObj.getAsJsonArray("docs");
-
-                progressBar.setValue(95);
-                List<MavenArtifact> artifacts = new ArrayList<>();
-                int total = docs.size();
-                for (int i = 0; i < total; i++) {
-                    JsonObject artifact = docs.get(i).getAsJsonObject();
-                    artifacts.add(new MavenArtifact(
-                            artifact.get("g").getAsString(),
-                            artifact.get("a").getAsString(),
-                            artifact.get("v").getAsString()
-                    ));
+                JsonArray docs = resp.getAsJsonObject("response").getAsJsonArray("docs");
+                List<MavenArtifact> out = new ArrayList<>();
+                for (int i = 0; i < docs.size(); i++) {
+                    JsonObject a = docs.get(i).getAsJsonObject();
+                    out.add(new MavenArtifact(a.get("g").getAsString(), a.get("a").getAsString(), a.get("v").getAsString()));
                 }
                 progressBar.setValue(100);
-                return artifacts;
+                return out;
             }
 
-            @Override
-            protected void done() {
-                progressTimer.stop();
+            @Override protected void done() {
+                timer.stop();
                 try {
-                    List<MavenArtifact> artifacts = get();
-                    if (artifacts.isEmpty()) {
-                        setStatus("No artifacts found for " + className, true);
+                    List<MavenArtifact> arts = get();
+                    if (arts.isEmpty()) {
+                        setStatus(StatusBadge.Kind.WARNING, "0 results", "No artifacts found for " + className);
                     } else {
-                        setStatus("Found " + artifacts.size() + " artifacts", false);
-                        MavenArtifact selected = showArtifactSelectionDialog(artifacts);
-                        if (selected != null) {
-                            downloadLibrary(selected);
-                        }
+                        setStatus(StatusBadge.Kind.SUCCESS, arts.size() + " hits", "Pick an artifact to import.");
+                        MavenArtifact chosen = pickArtifact(arts);
+                        if (chosen != null) downloadLibrary(chosen);
                     }
                 } catch (Exception e) {
-                    String errorMsg;
-                    if (e.getCause() instanceof TimeoutException || e.getCause() instanceof java.net.SocketTimeoutException) {
-                        errorMsg = "Connection to Maven Central timed out. Please try again.";
-                    } else {
-                        errorMsg = "Error searching Maven Central: " + e.getMessage();
-                    }
-                    setStatus(errorMsg, true);
-                    JOptionPane.showMessageDialog(
-                        LibrariesPanel.this,
-                        errorMsg,
-                        "Search Error",
-                        JOptionPane.ERROR_MESSAGE
-                    );
+                    setStatus(StatusBadge.Kind.DANGER, "Error",
+                            e.getCause() instanceof java.net.SocketTimeoutException
+                                    ? "Maven Central timed out. Try again."
+                                    : "Search failed: " + e.getMessage());
                 } finally {
-                    sourceButton.setEnabled(true);
+                    fetchButton.setEnabled(true);
                     progressBar.setVisible(false);
                 }
             }
@@ -444,133 +395,67 @@ public class LibrariesPanel extends JPanel implements SkidPanel {
         worker.execute();
     }
 
-    private static class MavenArtifact {
-        private final String groupId;
-        private final String artifactId;
-        private final String version;
-
-        public MavenArtifact(String groupId, String artifactId, String version) {
-            this.groupId = groupId;
-            this.artifactId = artifactId;
-            this.version = version;
-        }
-
-        @Override
-        public String toString() {
-            return groupId + ":" + artifactId + ":" + version;
-        }
-    }
-
-    private MavenArtifact showArtifactSelectionDialog(List<MavenArtifact> artifacts) {
+    private MavenArtifact pickArtifact(List<MavenArtifact> artifacts) {
         JList<MavenArtifact> list = new JList<>(artifacts.toArray(new MavenArtifact[0]));
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setVisibleRowCount(10);
-
-        JScrollPane scrollPane = new JScrollPane(list);
-        scrollPane.setPreferredSize(new Dimension(400, 200));
-
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                scrollPane,
-                "Select Library to Download",
-                JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.PLAIN_MESSAGE
-        );
-
-        if (result == JOptionPane.OK_OPTION) {
-            return list.getSelectedValue();
-        }
-        return null;
+        JScrollPane scroll = new JScrollPane(list);
+        scroll.setPreferredSize(new Dimension(440, 220));
+        int r = JOptionPane.showConfirmDialog(this, scroll, "Select library to download",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        return r == JOptionPane.OK_OPTION ? list.getSelectedValue() : null;
     }
 
     private void downloadLibrary(MavenArtifact artifact) {
-        setStatus("Downloading " + artifact + "...", false);
+        setStatus(StatusBadge.Kind.INFO, "Downloading", "Downloading " + artifact + "…");
         progressBar.setVisible(true);
         progressBar.setValue(0);
         progressBar.setIndeterminate(false);
-        progressBar.setStringPainted(true);
-        progressBar.setMaximum(100);
-        progressBar.setMinimum(0);
 
-        SwingWorker<File, Integer> worker = new SwingWorker<>() {
-            @Override
-            protected File doInBackground() throws Exception {
-                progressBar.setVisible(true);
+        SwingWorker<File, Integer> worker = new SwingWorker<File, Integer>() {
+            @Override protected File doInBackground() throws Exception {
                 String mavenUrl = String.format(
                         "https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar",
                         artifact.groupId.replace('.', '/'),
-                        artifact.artifactId,
-                        artifact.version,
-                        artifact.artifactId,
-                        artifact.version
-                );
-
-                HttpURLConnection connection = (HttpURLConnection) new URL(mavenUrl).openConnection();
-                int fileSize = connection.getContentLength();
-                
-                File outputFile = libraryFolder.resolve(artifact.artifactId + "-" + artifact.version + ".jar").toFile();
-                try (InputStream in = new BufferedInputStream(connection.getInputStream());
-                     FileOutputStream out = new FileOutputStream(outputFile)) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    long totalBytesRead = 0;
-                    
-                    while ((bytesRead = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, bytesRead);
-                        totalBytesRead += bytesRead;
-                        if (fileSize > 0) {
-                            publish((int) ((totalBytesRead * 100) / fileSize));
-                        }
+                        artifact.artifactId, artifact.version,
+                        artifact.artifactId, artifact.version);
+                HttpURLConnection conn = (HttpURLConnection) new URL(mavenUrl).openConnection();
+                int size = conn.getContentLength();
+                File out = libraryFolder.resolve(artifact.artifactId + "-" + artifact.version + ".jar").toFile();
+                try (InputStream in = new BufferedInputStream(conn.getInputStream());
+                     FileOutputStream fos = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int read; long total = 0;
+                    while ((read = in.read(buf)) != -1) {
+                        fos.write(buf, 0, read);
+                        total += read;
+                        if (size > 0) publish((int) (total * 100 / size));
                     }
                 }
-                return outputFile;
+                return out;
             }
 
-            @Override
-            protected void process(List<Integer> chunks) {
-                if (!chunks.isEmpty()) {
-                    Skidfuscator.LOGGER.log("Download progress: " + chunks.get(chunks.size() - 1) + "%");
-                    progressBar.setValue(chunks.get(chunks.size() - 1));
-                }
+            @Override protected void process(List<Integer> chunks) {
+                if (!chunks.isEmpty()) progressBar.setValue(chunks.get(chunks.size() - 1));
             }
 
-            @Override
-            protected void done() {
+            @Override protected void done() {
                 try {
-                    File downloadedFile = get();
-                    setStatus("Importing library " + artifact + "...", false);
-                    
+                    File downloaded = get();
+                    setStatus(StatusBadge.Kind.INFO, "Importing", "Importing " + artifact + "…");
                     try {
-                        classSource.importLibrary(downloadedFile);
-                        setStatus("Successfully imported " + artifact, false);
+                        classSource.importLibrary(downloaded);
+                        setStatus(StatusBadge.Kind.SUCCESS, "Imported", "Imported " + artifact);
                         refreshLibraryList();
                         refreshMissingClassesList();
                     } catch (IOException e) {
-                        String errorMsg = "Failed to import library: " + e.getMessage();
-                        setStatus(errorMsg, true);
-                        JOptionPane.showMessageDialog(
-                            LibrariesPanel.this,
-                            errorMsg + "\nError details: " + e.toString(),
-                            "Import Error",
-                            JOptionPane.ERROR_MESSAGE
-                        );
-                        // Clean up the downloaded file if import fails
-                        if (!downloadedFile.delete()) {
-                            downloadedFile.deleteOnExit();
-                        }
+                        setStatus(StatusBadge.Kind.DANGER, "Error", "Failed to import: " + e.getMessage());
+                        if (!downloaded.delete()) downloaded.deleteOnExit();
                     }
                 } catch (Exception e) {
-                    String errorMsg = "Error downloading library: " + e.getMessage();
-                    setStatus(errorMsg, true);
-                    JOptionPane.showMessageDialog(
-                        LibrariesPanel.this,
-                        errorMsg + "\nError details: " + e.toString(),
-                        "Download Error",
-                        JOptionPane.ERROR_MESSAGE
-                    );
+                    setStatus(StatusBadge.Kind.DANGER, "Error", "Download failed: " + e.getMessage());
                 } finally {
                     progressBar.setVisible(false);
-                    progressBar.setStringPainted(false);
                 }
             }
         };
@@ -578,87 +463,62 @@ public class LibrariesPanel extends JPanel implements SkidPanel {
     }
 
     private void addManualLibrary() {
-        FileDialog fileChooser = new FileDialog((Frame) null);
-        fileChooser.setVisible(true);
-        fileChooser.setMode(FileDialog.LOAD);
-        fileChooser.setFilenameFilter((f, name) -> f.isDirectory() || name.toLowerCase().endsWith(".jar"));
-        String selectedFileStr = fileChooser.getFile();
-        if (selectedFileStr != null) {
-            File selectedFile = new File(fileChooser.getDirectory(), selectedFileStr);
-            
-            // Check if the file is outside the library folder
-            if (!selectedFile.getParentFile().equals(libraryFolder.toFile())) {
-                int result = JOptionPane.showConfirmDialog(
-                    this,
-                    "The selected library is outside the library folder.\n" +
-                    "Would you like to copy it to the library folder?",
-                    "Copy Library",
-                    JOptionPane.YES_NO_OPTION
-                );
-                
-                if (result == JOptionPane.YES_OPTION) {
-                    try {
-                        File destFile = libraryFolder.resolve(selectedFile.getName()).toFile();
-                        Files.copy(selectedFile.toPath(), destFile.toPath());
-                        selectedFile = destFile;
-                        setStatus("Library copied to library folder", false);
-                    } catch (IOException e) {
-                        setStatus("Failed to copy library: " + e.getMessage(), true);
-                        return;
-                    }
+        FileDialog fd = new FileDialog((Frame) null);
+        fd.setMode(FileDialog.LOAD);
+        fd.setFilenameFilter((f, name) -> f.isDirectory() || name.toLowerCase().endsWith(".jar"));
+        fd.setVisible(true);
+        String picked = fd.getFile();
+        if (picked == null) return;
+        File selected = new File(fd.getDirectory(), picked);
+
+        if (!selected.getParentFile().equals(libraryFolder.toFile())) {
+            int r = JOptionPane.showConfirmDialog(this,
+                    "The selected library lives outside the library folder.\nCopy it in?",
+                    "Copy library", JOptionPane.YES_NO_OPTION);
+            if (r == JOptionPane.YES_OPTION) {
+                try {
+                    File dest = libraryFolder.resolve(selected.getName()).toFile();
+                    Files.copy(selected.toPath(), dest.toPath());
+                    selected = dest;
+                    setStatus(StatusBadge.Kind.SUCCESS, "Copied", "Library copied to library folder.");
+                } catch (IOException e) {
+                    setStatus(StatusBadge.Kind.DANGER, "Error", "Copy failed: " + e.getMessage());
+                    return;
                 }
             }
-
-            try {
-                classSource.importLibrary(selectedFile);
-                refreshLibraryList();
-                refreshMissingClassesList();
-                setStatus("Successfully imported " + selectedFile.getName(), false);
-            } catch (IOException e) {
-                setStatus("Failed to import library: " + e.getMessage(), true);
-            }
+        }
+        try {
+            classSource.importLibrary(selected);
+            refreshLibraryList();
+            refreshMissingClassesList();
+            setStatus(StatusBadge.Kind.SUCCESS, "Imported", "Imported " + selected.getName());
+        } catch (IOException e) {
+            setStatus(StatusBadge.Kind.DANGER, "Error", "Import failed: " + e.getMessage());
         }
     }
 
     private void removeManualLibrary() {
-        String selectedLibrary = libraryList.getSelectedValue();
-        if (selectedLibrary != null) {
-            File libraryFile = libraryFolder.resolve(selectedLibrary).toFile();
-            if (libraryFile.exists()) {
-                int result = JOptionPane.showConfirmDialog(
-                    this,
-                    "Are you sure you want to remove this library?\n" +
-                    "This will also delete the file from the library folder.",
-                    "Remove Library",
-                    JOptionPane.YES_NO_OPTION
-                );
-                
-                if (result == JOptionPane.YES_OPTION) {
-                    if (libraryFile.delete()) {
-                        setStatus("Successfully removed " + selectedLibrary, false);
-                        classSource.getLibraries()
-                                .removeIf(lib -> lib
-                                        .getParent()
-                                        .getName()
-                                        .equals(selectedLibrary)
-                                );
-                        refreshMissingClassesList();
-                        refreshLibraryList();
-                    } else {
-                        setStatus("Failed to remove library file", true);
-                    }
-                }
-            }
+        String selected = libraryList.getSelectedValue();
+        if (selected == null) return;
+        File f = libraryFolder.resolve(selected).toFile();
+        if (!f.exists()) return;
+        int r = JOptionPane.showConfirmDialog(this,
+                "Remove this library?\nThe file will be deleted from the library folder.",
+                "Remove library", JOptionPane.YES_NO_OPTION);
+        if (r != JOptionPane.YES_OPTION) return;
+        if (f.delete()) {
+            setStatus(StatusBadge.Kind.SUCCESS, "Removed", "Removed " + selected);
+            classSource.getLibraries().removeIf(l -> l.getParent().getName().equals(selected));
+            refreshLibraryList();
+            refreshMissingClassesList();
+        } else {
+            setStatus(StatusBadge.Kind.DANGER, "Error", "Failed to remove file.");
         }
     }
 
-    private void analyzeConfigJar() {
-        String inputPath = configPanel.getInputPath();
-        if (inputPath != null && !inputPath.isEmpty()) {
-            File inputFile = new File(inputPath);
-            if (inputFile.exists()) {
-                refreshInput(inputFile);
-            }
-        }
+    private static class MavenArtifact {
+        final String groupId, artifactId, version;
+        MavenArtifact(String g, String a, String v) { groupId = g; artifactId = a; version = v; }
+        @Override public String toString() { return groupId + ":" + artifactId + ":" + version; }
     }
-} 
+}

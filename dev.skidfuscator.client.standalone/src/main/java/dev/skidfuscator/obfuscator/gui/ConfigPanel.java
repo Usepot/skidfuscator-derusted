@@ -1,287 +1,332 @@
 package dev.skidfuscator.obfuscator.gui;
 
-import javax.swing.*;
-import java.awt.*;
-import java.io.File;
-import java.io.IOException;
-
 import dev.skidfuscator.jvm.Jvm;
 import dev.skidfuscator.obfuscator.gui.autosave.AutoSaveDocumentListener;
 import dev.skidfuscator.obfuscator.gui.config.SkidfuscatorConfig;
+import dev.skidfuscator.obfuscator.gui.ui.Card;
+import dev.skidfuscator.obfuscator.gui.ui.SecondaryButton;
+import dev.skidfuscator.obfuscator.gui.ui.SectionHeader;
+import dev.skidfuscator.obfuscator.gui.ui.StatusBadge;
+import dev.skidfuscator.obfuscator.gui.ui.UiTheme;
 import dev.skidfuscator.obfuscator.util.JdkDownloader;
 import dev.skidfuscator.obfuscator.util.Observable;
 
-import javax.swing.border.EtchedBorder;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.TransferHandler;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FileDialog;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Frame;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.datatransfer.DataFlavor;
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.util.List;
 
-public class ConfigPanel extends JPanel implements SkidPanel{
+public class ConfigPanel extends JPanel implements SkidPanel {
+
     private final JTextField inputField;
     private final JTextField outputField;
     private final JTextField libsField;
     private final JTextField runtimeField;
     private final JCheckBox debugBox;
     private final SkidfuscatorConfig config;
-    private Observable<Boolean> runtimeInstalled = new Observable.SimpleObservable<>(
+
+    private final StatusBadge inputBadge   = new StatusBadge();
+    private final StatusBadge outputBadge  = new StatusBadge();
+    private final StatusBadge libsBadge    = new StatusBadge();
+    private final StatusBadge runtimeBadge = new StatusBadge();
+
+    private final Observable<Boolean> runtimeInstalled = new Observable.SimpleObservable<>(
             JdkDownloader.isJdkDownloaded()
     );
 
     public ConfigPanel() {
-        setLayout(new GridBagLayout());
-        
-        // Create compound border with titled border and empty border for padding
-        setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(EtchedBorder.RAISED),
-                "Configuration", 
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                new Font("Segoe UI", Font.BOLD, 16)
-            ),
-            BorderFactory.createEmptyBorder(20, 0, 10, 0)
-        ));
-        // Add description panel at the top
-        JTextArea descriptionArea = new JTextArea(
-            "Configure your obfuscation settings below:\n\n" +
-            "• Input JAR: Select the Java archive (.jar) file you want to obfuscate\n" +
-            "• Output JAR: Choose where to save the obfuscated file (.jar, .apk, or .dex)\n" +
-            "• Libraries: (Optional) Directory containing dependency JARs needed by your application\n" +
-            "• Runtime: JDK runtime libraries required for compilation (auto-downloaded)\n" +
-            "• Debug Mode: Enable additional logging and debugging information\n\n"
-        );
-        descriptionArea.setEditable(false);
-        descriptionArea.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        descriptionArea.setLineWrap(true);
-        descriptionArea.setWrapStyleWord(true);
-        descriptionArea.setBackground(null);
-        descriptionArea.setBorder(null);
+        setLayout(new BorderLayout());
+        setOpaque(false);
 
-        // Create indicator panel
-        JPanel indicatorPanel = new JPanel();
-        indicatorPanel.setLayout(new BoxLayout(indicatorPanel, BoxLayout.Y_AXIS));
-        indicatorPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
-
-        // Add indicators with colored symbols
-        JLabel validLabel = new JLabel("✓ Green checkmarks indicate valid configurations");
-        validLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        validLabel.setForeground(new Color(0x2ECC40));
-
-        JLabel errorLabel = new JLabel("✗ Red X marks indicate issues that need to be resolved");
-        errorLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        errorLabel.setForeground(new Color(0xFF4136));
-
-        JLabel optionalLabel = new JLabel("● Orange dots indicate optional fields");
-        optionalLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        optionalLabel.setForeground(new Color(0xFF851B));
-
-        indicatorPanel.add(validLabel);
-        indicatorPanel.add(Box.createVerticalStrut(5));
-        indicatorPanel.add(errorLabel);
-        indicatorPanel.add(Box.createVerticalStrut(5));
-        indicatorPanel.add(optionalLabel);
-
-        // Add components to panel
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 5, 0, 5);
-        gbc.gridx = 0;
-        gbc.gridy = 20;
-        gbc.gridwidth = 3;
-        add(descriptionArea, gbc);
-
-        gbc.gridy = -1;
-        gbc.insets = new Insets(0, 5, 20, 5);
-        add(indicatorPanel, gbc);
-
-        // Reset gridwidth for other components
-        gbc.gridwidth = 1;
-        gbc.gridy++;
-
-        // Load configuration
         config = SkidfuscatorConfig.load();
 
-        // Input file
-        gbc.gridx = 0; gbc.gridy = 0;
-        add(new JLabel("Input JAR:"), gbc);
-        gbc.gridx = 1;
-        inputField = new JTextField(30);
-        JLabel inputCheck = new JLabel("✗");
-        inputCheck.setForeground(new Color(255, 65, 54));
-        DocumentListener inputListener = new DocumentListener() {
-            private void updateCheck() {
-                boolean valid = new File(inputField.getText()).exists();
-                inputCheck.setText(valid ? "✓" : "✗");
-                inputCheck.setForeground(valid ? new Color(46, 204, 64) : new Color(255, 65, 54));
-                System.out.println("Input valid: " + valid);
-                config.getValidInput().set(valid);
+        // Fields must exist before we build the cards that reference them.
+        inputField   = new JTextField();
+        outputField  = new JTextField();
+        libsField    = new JTextField();
+        runtimeField = new JTextField();
+        debugBox     = new JCheckBox("Debug mode");
+        debugBox.setOpaque(false);
+        debugBox.setForeground(UiTheme.TEXT_PRIMARY);
+        debugBox.setFont(UiTheme.font(Font.PLAIN, 12f));
+        debugBox.setSelected(config.isDebugEnabled());
+        SectionHeader header = new SectionHeader(
+                "Configuration",
+                "Point Skidfuscator at the jar you want to obfuscate, then pick where the output goes.");
+        add(header, BorderLayout.NORTH);
 
-                if (!valid) {
-                    StringBuilder tooltip = new StringBuilder("<html><body style='width: 250px; padding: 3px; background-color: #FFF3CD; border: 2px solid #FFE69C; border-radius: 4px'>");
-                    tooltip.append("<div style='color: #856404; font-weight: bold; margin-bottom: 5px'>⚠ Warning: Invalid Input Configuration</div>");
-                    tooltip.append("<div style='color: #664D03; margin: 3px 0'>Input file does not exist</div>");
-                    tooltip.append("</body></html>");
-                    
-                    ToolTipManager.sharedInstance().setInitialDelay(0);
-                    ToolTipManager.sharedInstance().setDismissDelay(10000);
-                    inputField.setToolTipText(tooltip.toString());
-                } else {
-                    inputField.setToolTipText(null);
-                }
-            }
-            public void insertUpdate(DocumentEvent e) { updateCheck(); }
-            public void removeUpdate(DocumentEvent e) { updateCheck(); }
-            public void changedUpdate(DocumentEvent e) { updateCheck(); }
-        };
-        inputField.getDocument().addDocumentListener(inputListener);
-        if (config.getLastInputPath() != null) {
-            inputField.setText(config.getLastInputPath());
-            inputListener.insertUpdate(null);  // Trigger initial validation
+        JPanel body = new JPanel();
+        body.setOpaque(false);
+        body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+
+        body.add(buildFormCard());
+        body.add(Box.createVerticalStrut(UiTheme.PAD_M));
+        body.add(buildOptionsCard());
+        body.add(Box.createVerticalStrut(UiTheme.PAD_M));
+        body.add(buildLegendCard());
+        body.add(Box.createVerticalGlue());
+
+        JScrollPane scroll = new JScrollPane(body);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        add(scroll, BorderLayout.CENTER);
+
+        installFormRows();
+        installListeners();
+        loadFromConfig();
+        setupAutoSave();
+    }
+
+    // ------------------------------------------------------------------
+    // Card layout
+    // ------------------------------------------------------------------
+
+    private Card formCard;
+    private GridBagConstraints rowGbc;
+    private int rowIndex = 0;
+
+    private Card buildFormCard() {
+        formCard = new Card(new GridBagLayout());
+        formCard.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_L, UiTheme.PAD_L, UiTheme.PAD_L, UiTheme.PAD_L));
+        return formCard;
+    }
+
+    private void installFormRows() {
+        rowGbc = new GridBagConstraints();
+        rowGbc.fill = GridBagConstraints.HORIZONTAL;
+        rowGbc.insets = new Insets(8, 8, 8, 8);
+
+        addFormRow("Input JAR",   "Drag a jar here or click Browse.",        inputField,   inputBadge,   browseFile(inputField, PickerKind.INPUT_JAR));
+        addFormRow("Output JAR",  ".jar / .apk / .dex destination for the result.", outputField,  outputBadge,  browseFile(outputField, PickerKind.OUTPUT_JAR));
+        addFormRow("Libraries",   "Optional folder of dependency jars.",        libsField,    libsBadge,    browseFile(libsField, PickerKind.DIRECTORY));
+        addRuntimeRow();
+
+        installFileDrop(inputField,  this::handleInputDrop);
+        installFileDrop(outputField, this::handleOutputDrop);
+        installFileDrop(libsField,   this::handleLibsDrop);
+        installFileDrop(formCard,    this::handleSmartDrop);
+        installFileDrop(this,        this::handleSmartDrop);
+    }
+
+    private void addFormRow(String label, String helper, JTextField field, StatusBadge badge, JButton browse) {
+        // Label + helper
+        JPanel labelPanel = new JPanel();
+        labelPanel.setOpaque(false);
+        labelPanel.setLayout(new BoxLayout(labelPanel, BoxLayout.Y_AXIS));
+        JLabel l = new JLabel(label);
+        l.setForeground(UiTheme.TEXT_PRIMARY);
+        l.setFont(UiTheme.font(Font.BOLD, 12f));
+        l.setAlignmentX(Component.LEFT_ALIGNMENT);
+        labelPanel.add(l);
+        JLabel help = new JLabel(helper);
+        help.setForeground(UiTheme.TEXT_MUTED);
+        help.setFont(UiTheme.font(Font.PLAIN, 11f));
+        help.setAlignmentX(Component.LEFT_ALIGNMENT);
+        labelPanel.add(help);
+
+        field.putClientProperty("JTextField.placeholderText", "Browse or paste a path…");
+        field.setFont(UiTheme.font(Font.PLAIN, 13f));
+        field.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+
+        rowGbc.gridy = rowIndex;
+        rowGbc.gridx = 0;
+        rowGbc.weightx = 0;
+        rowGbc.gridwidth = 1;
+        formCard.add(labelPanel, rowGbc);
+
+        rowGbc.gridx = 1;
+        rowGbc.weightx = 1;
+        formCard.add(field, rowGbc);
+
+        rowGbc.gridx = 2;
+        rowGbc.weightx = 0;
+        formCard.add(browse, rowGbc);
+
+        rowGbc.gridx = 3;
+        formCard.add(badge, rowGbc);
+
+        rowIndex++;
+    }
+
+    private void addRuntimeRow() {
+        JPanel labelPanel = new JPanel();
+        labelPanel.setOpaque(false);
+        labelPanel.setLayout(new BoxLayout(labelPanel, BoxLayout.Y_AXIS));
+        JLabel l = new JLabel("Runtime");
+        l.setForeground(UiTheme.TEXT_PRIMARY);
+        l.setFont(UiTheme.font(Font.BOLD, 12f));
+        labelPanel.add(l);
+        JLabel help = new JLabel("JDK modules used during analysis.");
+        help.setForeground(UiTheme.TEXT_MUTED);
+        help.setFont(UiTheme.font(Font.PLAIN, 11f));
+        labelPanel.add(help);
+
+        runtimeField.putClientProperty("JTextField.placeholderText", "Auto-detected after install");
+        runtimeField.setFont(UiTheme.font(Font.PLAIN, 13f));
+        runtimeField.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+
+        JButton install = new SecondaryButton("Install");
+        install.addActionListener(e -> performInstall(install));
+
+        rowGbc.gridy = rowIndex;
+        rowGbc.gridx = 0;
+        rowGbc.weightx = 0;
+        formCard.add(labelPanel, rowGbc);
+
+        rowGbc.gridx = 1;
+        rowGbc.weightx = 1;
+        formCard.add(runtimeField, rowGbc);
+
+        rowGbc.gridx = 2;
+        rowGbc.weightx = 0;
+        formCard.add(install, rowGbc);
+
+        rowGbc.gridx = 3;
+        formCard.add(runtimeBadge, rowGbc);
+
+        if (JdkDownloader.isJdkDownloaded()) {
+            install.setText("Installed");
+            install.setEnabled(false);
         }
-        add(inputField, gbc);
-        gbc.gridx = 2;
-        JPanel inputButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        inputButtonPanel.setPreferredSize(new Dimension(150, 30));
-        JButton inputBrowseButton = createBrowseButton(inputField, false);
-        inputButtonPanel.add(inputBrowseButton);
-        inputButtonPanel.add(Box.createHorizontalGlue());  // Push label to right
-        inputButtonPanel.add(inputCheck);
-        add(inputButtonPanel, gbc);
+        rowIndex++;
+    }
 
-        // Output file
-        gbc.gridx = 0; gbc.gridy = 1;
-        add(new JLabel("Output JAR:"), gbc);
-        gbc.gridx = 1;
-        outputField = new JTextField(30);
-        JLabel outputCheck = new JLabel("✗");
-        outputCheck.setForeground(new Color(255, 65, 54));
-        DocumentListener outputListener = new DocumentListener() {
-            private void updateCheck() {
-                final String output = outputField.getText();
-                File parent = new File(output).getParentFile();
+    private Card buildOptionsCard() {
+        Card card = new Card(new BorderLayout());
+        card.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_M, UiTheme.PAD_L, UiTheme.PAD_M, UiTheme.PAD_L));
 
-                // [condition] must be valid file extension
-                final boolean validEnd = output.endsWith(".jar")
-                        || output.endsWith(".apk")
-                        || output.endsWith(".dex");
+        JPanel options = new JPanel(new FlowLayout(FlowLayout.LEFT, UiTheme.PAD_M, 0));
+        options.setOpaque(false);
+        options.add(debugBox);
+        card.add(options, BorderLayout.WEST);
 
-                // [condition] must not be input
-                final boolean validInput = !inputField.getText().equals(output);
+        JButton save = new SecondaryButton("Save settings");
+        save.addActionListener(e -> {
+            saveConfiguration();
+            JOptionPane.showMessageDialog(this, "Settings saved.", "Saved", JOptionPane.INFORMATION_MESSAGE);
+        });
+        card.add(save, BorderLayout.EAST);
+        return card;
+    }
 
-                boolean valid = parent != null && parent.exists() && validEnd && validInput;
-                outputCheck.setText(valid ? "✓" : "✗");
-                outputCheck.setForeground(valid
-                        ? new Color(46, 204, 64)
-                        : new Color(255, 65, 54)
-                );
-                // Set tooltip explaining validation failure
-                StringBuilder tooltip = new StringBuilder("<html><body style='width: 250px; padding: 3px; background-color: #FFF3CD; border: 2px solid #FFE69C; border-radius: 4px'>");
-                tooltip.append("<div style='color: #856404; font-weight: bold; margin-bottom: 5px'>⚠ Warning: Invalid Output Configuration</div>");
-                
-                if (parent == null || !parent.exists()) {
-                    tooltip.append("<div style='color: #664D03; margin: 3px 0'>Output directory does not exist</div>");
-                }
-                if (!validEnd) {
-                    tooltip.append("<div style='color: #664D03; margin: 3px 0'>File must end with .jar, .apk or .dex</div>");
-                }
-                if (!validInput) {
-                    tooltip.append("<div style='color: #664D03; margin: 3px 0'>Output file cannot be the same as input file</div>");
-                }
-                tooltip.append("</body></html>");
-                config.getValidOutput().set(validInput);
-                
-                if (!valid) {
-                    ToolTipManager.sharedInstance().setInitialDelay(0);
-                    ToolTipManager.sharedInstance().setDismissDelay(10000);
+    private Card buildLegendCard() {
+        Card card = new Card();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBorder(BorderFactory.createEmptyBorder(UiTheme.PAD_M, UiTheme.PAD_L, UiTheme.PAD_M, UiTheme.PAD_L));
 
-                    outputField.setToolTipText(tooltip.toString());
-                } else {
-                    outputField.setToolTipText(null);
-                }
+        JLabel title = new JLabel("Status legend");
+        title.setForeground(UiTheme.TEXT_PRIMARY);
+        title.setFont(UiTheme.font(Font.BOLD, 12f));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(title);
+        card.add(Box.createVerticalStrut(6));
+
+        card.add(legendRow(new StatusBadge(StatusBadge.Kind.SUCCESS, "OK"),     "Field is valid."));
+        card.add(legendRow(new StatusBadge(StatusBadge.Kind.WARNING, "Optional"),"Field is optional, leave blank to skip."));
+        card.add(legendRow(new StatusBadge(StatusBadge.Kind.DANGER,  "Action"), "Resolve before starting."));
+        return card;
+    }
+
+    private JPanel legendRow(StatusBadge badge, String text) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, UiTheme.PAD_M, 4));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.add(badge);
+        JLabel label = new JLabel(text);
+        label.setForeground(UiTheme.TEXT_SECONDARY);
+        label.setFont(UiTheme.font(Font.PLAIN, 12f));
+        row.add(label);
+        return row;
+    }
+
+    // ------------------------------------------------------------------
+    // Validation listeners
+    // ------------------------------------------------------------------
+
+    private void installListeners() {
+        inputField.getDocument().addDocumentListener(simple(() -> {
+            boolean valid = !inputField.getText().isEmpty() && new File(inputField.getText()).exists();
+            config.getValidInput().set(valid);
+            if (inputField.getText().isEmpty()) inputBadge.set(StatusBadge.Kind.DANGER, "Required");
+            else inputBadge.set(valid ? StatusBadge.Kind.SUCCESS : StatusBadge.Kind.DANGER,
+                    valid ? "OK" : "Missing");
+            if (valid && outputField.getText().trim().isEmpty()) {
+                String suggested = suggestOutputName(inputField.getText());
+                if (suggested != null) outputField.setText(suggested);
             }
-            public void insertUpdate(DocumentEvent e) { updateCheck(); }
-            public void removeUpdate(DocumentEvent e) { updateCheck(); }
-            public void changedUpdate(DocumentEvent e) { updateCheck(); }
-        };
-        outputField.getDocument().addDocumentListener(outputListener);
-        if (config.getLastOutputPath() != null) {
-            outputField.setText(config.getLastOutputPath());
-            outputListener.insertUpdate(null);
-        } else if (config.getLastInputPath() != null || inputField.getText() != null) {
-            final String input = config.getLastInputPath() != null
-                    ? config.getLastInputPath()
-                    : inputField.getText();
+        }));
 
-            outputField.setText(input.replace(".jar", "-obf.jar"));
-            outputListener.insertUpdate(null);
-        } else {
-            config.getValidOutput().set(false);
-        }
-        add(outputField, gbc);
-        gbc.gridx = 2;
-        JPanel outputButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        outputButtonPanel.setPreferredSize(new Dimension(150, 30));
-        JButton outputBrowseButton = createBrowseButton(outputField, false);
-        outputButtonPanel.add(outputBrowseButton);
-        outputButtonPanel.add(Box.createHorizontalGlue());
-        outputButtonPanel.add(outputCheck);
-        add(outputButtonPanel, gbc);
+        outputField.getDocument().addDocumentListener(simple(() -> {
+            String text = outputField.getText();
+            File parent = text.isEmpty() ? null : new File(text).getParentFile();
+            boolean okEnd = text.endsWith(".jar") || text.endsWith(".apk") || text.endsWith(".dex");
+            boolean diff  = !text.equals(inputField.getText());
+            boolean valid = parent != null && parent.exists() && okEnd && diff && !text.isEmpty();
+            config.getValidOutput().set(valid);
+            if (text.isEmpty())             outputBadge.set(StatusBadge.Kind.DANGER, "Required");
+            else if (!okEnd)                outputBadge.set(StatusBadge.Kind.DANGER, ".jar/.apk/.dex");
+            else if (!diff)                 outputBadge.set(StatusBadge.Kind.DANGER, "Same as input");
+            else if (parent == null || !parent.exists())
+                outputBadge.set(StatusBadge.Kind.DANGER, "Folder?");
+            else                            outputBadge.set(StatusBadge.Kind.SUCCESS, "OK");
+        }));
 
-        // Libraries
-        gbc.gridx = 0; gbc.gridy = 2;
-        add(new JLabel("Libraries:"), gbc);
-        gbc.gridx = 1;
-        libsField = new JTextField(30);
-        JLabel libsCheck = new JLabel("✗");
-        libsCheck.setForeground(new Color(255, 65, 54));
-        DocumentListener libsListener = new DocumentListener() {
-            private void updateCheck() {
-                boolean valid;
-                if (libsField.getText().isEmpty()) {
-                    valid = true; // Empty is valid
-                    // Set orange dot for pending state
-                    libsCheck.setText("●");
-                    libsCheck.setForeground(new Color(255, 140, 0)); // Orange color
-                    return;
-                } else {
-                    File dir = new File(libsField.getText());
-                    valid = dir.exists() && dir.isDirectory();
-                }
-                libsCheck.setText(valid ? "✓" : "✗");
-                libsCheck.setForeground(valid ? new Color(46, 204, 64) : new Color(255, 65, 54));
+        libsField.getDocument().addDocumentListener(simple(() -> {
+            String text = libsField.getText();
+            if (text.isEmpty()) {
+                libsBadge.set(StatusBadge.Kind.WARNING, "Optional");
+            } else {
+                File dir = new File(text);
+                libsBadge.set(dir.exists() && dir.isDirectory() ? StatusBadge.Kind.SUCCESS : StatusBadge.Kind.DANGER,
+                        dir.exists() ? "OK" : "Missing");
             }
-            public void insertUpdate(DocumentEvent e) { updateCheck(); }
-            public void removeUpdate(DocumentEvent e) { updateCheck(); }
-            public void changedUpdate(DocumentEvent e) { updateCheck(); }
-        };
-        libsField.getDocument().addDocumentListener(libsListener);
-        if (config.getLastLibsPath() != null) {
-            libsField.setText(config.getLastLibsPath());
-            libsListener.insertUpdate(null);
-        }
-        add(libsField, gbc);
-        gbc.gridx = 2;
-        JPanel libsButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        libsButtonPanel.setPreferredSize(new Dimension(150, 30));
-        JButton libsBrowseButton = createBrowseButton(libsField, true);
-        libsButtonPanel.add(libsBrowseButton);
-        libsButtonPanel.add(Box.createHorizontalGlue());
-        libsButtonPanel.add(libsCheck);
-        add(libsButtonPanel, gbc);
+        }));
 
-        // Runtime
-        gbc.gridx = 0; gbc.gridy = 3;
-        add(new JLabel("Runtime:"), gbc);
-        gbc.gridx = 1;
-        runtimeField = new JTextField(30);
-        
-        // Check if JDK was previously downloaded
+        runtimeField.getDocument().addDocumentListener(simple(this::refreshRuntimeBadge));
+    }
+
+    private void loadFromConfig() {
+        if (config.getLastInputPath() != null)  inputField.setText(config.getLastInputPath());
+        if (config.getLastOutputPath() != null) outputField.setText(config.getLastOutputPath());
+        else if (!inputField.getText().isEmpty()) outputField.setText(inputField.getText().replace(".jar", "-obf.jar"));
+        if (config.getLastLibsPath() != null)   libsField.setText(config.getLastLibsPath());
+
         try {
             String jmodPath = JdkDownloader.getCachedJmodPath();
             runtimeField.setText(jmodPath);
             runtimeField.setEnabled(!JdkDownloader.isJdkDownloaded());
             runtimeInstalled.set(JdkDownloader.isJdkDownloaded());
         } catch (IOException e) {
-            // Fallback to config
             if (config.getLastRuntimePath() != null) {
                 if (config.getLastRuntimePath().isEmpty()) {
                     runtimeField.setText(Jvm.getLibsPath());
@@ -292,160 +337,252 @@ public class ConfigPanel extends JPanel implements SkidPanel{
                 }
             }
         }
-
-        add(runtimeField, gbc);
-        
-        // Add download button next to browse button
-        gbc.gridx = 2;
-        JPanel runtimeButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        JLabel downloadCheck = new JLabel("✗");
-        downloadCheck.setForeground(new Color(255, 65, 54));
-
-        JButton downloadButton = new JButton("Install");
-        runtimeButtonPanel.setPreferredSize(new Dimension(150, 30));
-
-        // Set initial button state based on JDK download status
-        if (JdkDownloader.isJdkDownloaded()) {
-            downloadButton.setText("Installed");
-            downloadButton.setEnabled(false);
-            downloadCheck.setText("✓");
-            downloadCheck.setForeground(new Color(46, 204, 64));
-            runtimeInstalled.set(true);
-        }
-        
-        downloadButton.addActionListener(e -> {
-            downloadButton.setEnabled(false);
-            downloadButton.setText("Downloading...");
-            
-            SwingWorker<String, Void> worker = new SwingWorker<>() {
-                @Override
-                protected String doInBackground() throws Exception {
-                    return JdkDownloader.getJmodPath();
-                }
-
-                @Override
-                protected void done() {
-                    try {
-                        String path = get();
-                        runtimeField.setText(path);
-                        runtimeField.setEnabled(false);
-                        downloadButton.setText("Installed");
-                        downloadButton.setEnabled(false);
-                        downloadCheck.setText("✓");
-                        downloadCheck.setForeground(new Color(46, 204, 64));
-                        runtimeInstalled.set(true);
-
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(
-                            ConfigPanel.this,
-                            "Failed to download JDK: " + ex.getMessage(),
-                            "Download Error",
-                            JOptionPane.ERROR_MESSAGE
-                        );
-                        downloadButton.setText("Install");
-                        downloadButton.setEnabled(true);
-                        downloadCheck.setText("✗");
-                        downloadCheck.setForeground(new Color(255, 65, 54));
-                        runtimeInstalled.set(false);
-                    }
-                }
-            };
-            worker.execute();
-        });
-        runtimeButtonPanel.add(downloadButton);
-        runtimeButtonPanel.add(Box.createHorizontalGlue());
-        runtimeButtonPanel.add(downloadCheck);
-
-        // removing for now
-        //runtimeButtonPanel.add(createBrowseButton(runtimeField, false));
-        add(runtimeButtonPanel, gbc);
-
-        // Checkboxes
-        JPanel checkboxPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        debugBox = new JCheckBox("Debug Mode");
-        //phantomBox = new JCheckBox("Use Phantom");
-        debugBox.setSelected(config.isDebugEnabled());
-        //phantomBox.setSelected(config.isPhantomEnabled());
-        checkboxPanel.add(debugBox);
-        //checkboxPanel.add(phantomBox);
-
-        gbc.gridx = 0; gbc.gridy = 4;
-        gbc.gridwidth = 3;
-        add(checkboxPanel, gbc);
-
-        // Add save button
-        JButton saveButton = new JButton("Save Settings");
-        saveButton.addActionListener(e -> saveConfiguration());
-        gbc.gridy = 5;
-        gbc.anchor = GridBagConstraints.LINE_END;
-        add(saveButton, gbc);
-
-        // Add automatic save on field changes
-        setupAutoSave();
+        refreshRuntimeBadge();
     }
 
-    private JButton createBrowseButton(JTextField field, boolean isDirectory) {
-        JButton button = new JButton("Browse");
-        button.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser(field.getText() == null
-                    ? config.getLastDirectory()
-                    : field.getText()
-            );
-            if (isDirectory) {
-                chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+    private void refreshRuntimeBadge() {
+        if (JdkDownloader.isJdkDownloaded()) {
+            runtimeBadge.set(StatusBadge.Kind.SUCCESS, "Installed");
+        } else if (runtimeField.getText().isEmpty()) {
+            runtimeBadge.set(StatusBadge.Kind.DANGER, "Install");
+        } else {
+            runtimeBadge.set(StatusBadge.Kind.WARNING, "Manual");
+        }
+    }
+
+    private void performInstall(JButton install) {
+        install.setEnabled(false);
+        install.setText("Downloading…");
+        runtimeBadge.set(StatusBadge.Kind.INFO, "Downloading…");
+
+        SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return JdkDownloader.getJmodPath();
             }
-            int result = chooser.showOpenDialog(this);
-            if (result == JFileChooser.APPROVE_OPTION) {
-                field.setText(chooser.getSelectedFile().getAbsolutePath());
-                config.setLastDirectory(chooser.getCurrentDirectory().getAbsolutePath());
-                saveConfiguration();
+            @Override protected void done() {
+                try {
+                    String path = get();
+                    runtimeField.setText(path);
+                    runtimeField.setEnabled(false);
+                    install.setText("Installed");
+                    install.setEnabled(false);
+                    runtimeInstalled.set(true);
+                    runtimeBadge.set(StatusBadge.Kind.SUCCESS, "Installed");
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(ConfigPanel.this,
+                            "Failed to download JDK: " + ex.getMessage(),
+                            "Download error", JOptionPane.ERROR_MESSAGE);
+                    install.setText("Install");
+                    install.setEnabled(true);
+                    runtimeInstalled.set(false);
+                    runtimeBadge.set(StatusBadge.Kind.DANGER, "Failed");
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    // ------------------------------------------------------------------
+    // Browse / persistence
+    // ------------------------------------------------------------------
+
+    private enum PickerKind { INPUT_JAR, OUTPUT_JAR, DIRECTORY }
+
+    private JButton browseFile(JTextField field, PickerKind kind) {
+        JButton btn = new SecondaryButton("Browse");
+        btn.addActionListener(e -> openNativePicker(field, kind));
+        return btn;
+    }
+
+    private void openNativePicker(JTextField field, PickerKind kind) {
+        Frame parent = (Frame) SwingUtilities.getWindowAncestor(this);
+
+        String startPath = (field.getText() == null || field.getText().isEmpty())
+                ? config.getLastDirectory()
+                : field.getText();
+        File start = startPath == null ? null : new File(startPath);
+
+        String title;
+        int mode;
+        switch (kind) {
+            case OUTPUT_JAR: title = "Choose output destination"; mode = FileDialog.SAVE; break;
+            case DIRECTORY:  title = "Pick any file in the libraries folder"; mode = FileDialog.LOAD; break;
+            default:         title = "Choose input jar"; mode = FileDialog.LOAD;
+        }
+
+        // FileDialog uses the native Windows common dialog on Win32.
+        FileDialog dialog = new FileDialog(parent, title, mode);
+        if (start != null) {
+            if (start.isDirectory()) {
+                dialog.setDirectory(start.getAbsolutePath());
+            } else if (start.getParentFile() != null) {
+                dialog.setDirectory(start.getParentFile().getAbsolutePath());
+                if (kind == PickerKind.OUTPUT_JAR || kind == PickerKind.INPUT_JAR) {
+                    dialog.setFile(start.getName());
+                }
+            }
+        }
+        if (kind != PickerKind.DIRECTORY) {
+            dialog.setFile("*.jar;*.apk;*.dex");
+            dialog.setFilenameFilter(jarFilter());
+        }
+        if (kind == PickerKind.OUTPUT_JAR && (dialog.getFile() == null || dialog.getFile().isEmpty())) {
+            String suggestion = suggestOutputName(inputField.getText());
+            if (suggestion != null) dialog.setFile(new File(suggestion).getName());
+        }
+
+        dialog.setVisible(true);
+        if (dialog.getFile() == null) return;
+
+        File picked = new File(dialog.getDirectory(), dialog.getFile());
+        File finalPath = (kind == PickerKind.DIRECTORY) ? picked.getParentFile() : picked;
+        if (finalPath == null) return;
+
+        field.setText(finalPath.getAbsolutePath());
+        config.setLastDirectory(dialog.getDirectory());
+        saveConfiguration();
+    }
+
+    private static FilenameFilter jarFilter() {
+        return (dir, name) -> {
+            String n = name.toLowerCase();
+            return n.endsWith(".jar") || n.endsWith(".apk") || n.endsWith(".dex");
+        };
+    }
+
+    // ------------------------------------------------------------------
+    // Drag & drop
+    // ------------------------------------------------------------------
+
+    @FunctionalInterface
+    private interface DropConsumer {
+        void accept(List<File> files);
+    }
+
+    private void installFileDrop(JComponent target, DropConsumer onDrop) {
+        target.setTransferHandler(new TransferHandler() {
+            @Override
+            public boolean canImport(TransferSupport support) {
+                return support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) return false;
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<File> files = (List<File>) support.getTransferable()
+                            .getTransferData(DataFlavor.javaFileListFlavor);
+                    if (files != null && !files.isEmpty()) {
+                        onDrop.accept(files);
+                        return true;
+                    }
+                } catch (Exception ignored) { }
+                return false;
             }
         });
-        return button;
+    }
+
+    private void handleInputDrop(List<File> files) {
+        File f = files.get(0);
+        if (f.isDirectory()) {
+            libsField.setText(f.getAbsolutePath());
+        } else {
+            inputField.setText(f.getAbsolutePath());
+            maybeFillOutputFrom(f);
+        }
+    }
+
+    private void handleOutputDrop(List<File> files) {
+        File f = files.get(0);
+        if (f.isDirectory()) {
+            // Drop a folder onto output → suggest <input-name>-obf.jar inside it.
+            String suggested = suggestOutputName(inputField.getText());
+            if (suggested != null) {
+                outputField.setText(new File(f, new File(suggested).getName()).getAbsolutePath());
+            } else {
+                outputField.setText(f.getAbsolutePath());
+            }
+        } else {
+            outputField.setText(f.getAbsolutePath());
+        }
+    }
+
+    private void handleLibsDrop(List<File> files) {
+        File f = files.get(0);
+        libsField.setText(f.isDirectory() ? f.getAbsolutePath()
+                : (f.getParentFile() == null ? f.getAbsolutePath() : f.getParentFile().getAbsolutePath()));
+    }
+
+    private void handleSmartDrop(List<File> files) {
+        File f = files.get(0);
+        if (f.isDirectory()) {
+            libsField.setText(f.getAbsolutePath());
+        } else {
+            String name = f.getName().toLowerCase();
+            if (name.endsWith(".jar") || name.endsWith(".apk") || name.endsWith(".dex")) {
+                inputField.setText(f.getAbsolutePath());
+                maybeFillOutputFrom(f);
+            }
+        }
+    }
+
+    private void maybeFillOutputFrom(File input) {
+        if (!outputField.getText().trim().isEmpty()) return;
+        String suggested = suggestOutputName(input.getAbsolutePath());
+        if (suggested != null) outputField.setText(suggested);
+    }
+
+    private static String suggestOutputName(String inputPath) {
+        if (inputPath == null || inputPath.trim().isEmpty()) return null;
+        File in = new File(inputPath.trim());
+        String name = in.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot < 0 ? name : name.substring(0, dot);
+        String ext = dot < 0 ? "jar" : name.substring(dot + 1);
+        File parent = in.getParentFile();
+        File suggested = new File(parent != null ? parent : new File("."), stem + "-obf." + ext);
+        return suggested.getAbsolutePath();
     }
 
     private void setupAutoSave() {
-        // Add document listeners to all text fields
-        inputField.getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
-        outputField.getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
-        libsField.getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
+        inputField  .getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
+        outputField .getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
+        libsField   .getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
         runtimeField.getDocument().addDocumentListener(new AutoSaveDocumentListener(this::saveConfiguration));
-
-        // Add action listeners to checkboxes
         debugBox.addActionListener(e -> saveConfiguration());
     }
 
     private void saveConfiguration() {
-        SwingUtilities.invokeLater(() -> {
-            SkidfuscatorConfig newConfig = new SkidfuscatorConfig.Builder()
-                    .setLastInputPath(inputField.getText())
-                    .setLastOutputPath(outputField.getText())
-                    .setLastLibsPath(libsField.getText())
-                    .setLastRuntimePath(runtimeField.getText())
-                    .setDebugEnabled(debugBox.isSelected())
-                    .setLastDirectory(config.getLastDirectory())
-                    .build();
-            newConfig.save();
-        });
+        SwingUtilities.invokeLater(() -> new SkidfuscatorConfig.Builder()
+                .setLastInputPath(inputField.getText())
+                .setLastOutputPath(outputField.getText())
+                .setLastLibsPath(libsField.getText())
+                .setLastRuntimePath(runtimeField.getText())
+                .setDebugEnabled(debugBox.isSelected())
+                .setLastDirectory(config.getLastDirectory())
+                .build()
+                .save());
     }
 
-    // Getters
-    public String getInputPath() { return inputField.getText(); }
-    public String getOutputPath() { return outputField.getText(); }
-    public String getLibsPath() { return libsField.getText(); }
+    private static DocumentListener simple(Runnable r) {
+        return new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { r.run(); }
+            @Override public void removeUpdate(DocumentEvent e) { r.run(); }
+            @Override public void changedUpdate(DocumentEvent e) { r.run(); }
+        };
+    }
+
+    // ------------------------------------------------------------------
+    // Accessors used by MainFrame
+    // ------------------------------------------------------------------
+
+    public String getInputPath()   { return inputField.getText(); }
+    public String getOutputPath()  { return outputField.getText(); }
+    public String getLibsPath()    { return libsField.getText(); }
     public String getRuntimePath() { return runtimeField.getText(); }
-    public boolean isDebugEnabled() { return debugBox.isSelected(); }
-    public String getLibraryPath() {
-        // TODO: Add a library path field to the config panel
-        return null;
-    }
-
-    public Observable<Boolean> getRuntimeInstalled() {
-        return runtimeInstalled;
-    }
-
-    public SkidfuscatorConfig getConfig() {
-        return config;
-    }
+    public boolean isDebugEnabled(){ return debugBox.isSelected(); }
+    public String getLibraryPath() { return null; }
+    public Observable<Boolean> getRuntimeInstalled() { return runtimeInstalled; }
+    public SkidfuscatorConfig getConfig() { return config; }
 }
-

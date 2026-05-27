@@ -6,6 +6,8 @@ import dev.skidfuscator.obfuscator.util.Observable;
 import lombok.Data;
 
 import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 public class SkidfuscatorConfig {
@@ -19,7 +21,9 @@ public class SkidfuscatorConfig {
     private String lastRuntimePath;
     private boolean debugEnabled;
     private boolean phantomEnabled;
+    private boolean proGuardClassRenamingEnabled;
     private String lastDirectory;
+    private List<String> exemptions = new ArrayList<>();
 
     private transient Observable<Boolean>
             validInput = new Observable.SimpleObservable<>(false),
@@ -66,8 +70,18 @@ public class SkidfuscatorConfig {
             return this;
         }
 
+        public Builder setProGuardClassRenamingEnabled(boolean enabled) {
+            config.proGuardClassRenamingEnabled = enabled;
+            return this;
+        }
+
         public Builder setLastDirectory(String dir) {
             config.lastDirectory = dir;
+            return this;
+        }
+
+        public Builder setExemptions(List<String> exemptions) {
+            config.exemptions = exemptions == null ? new ArrayList<>() : new ArrayList<>(exemptions);
             return this;
         }
 
@@ -83,7 +97,10 @@ public class SkidfuscatorConfig {
         }
 
         try (Reader reader = new FileReader(configFile)) {
-            return GSON.fromJson(reader, SkidfuscatorConfig.class);
+            SkidfuscatorConfig loaded = GSON.fromJson(reader, SkidfuscatorConfig.class);
+            if (loaded == null) loaded = new SkidfuscatorConfig();
+            if (loaded.exemptions == null) loaded.exemptions = new ArrayList<>();
+            return loaded;
         } catch (IOException e) {
             e.printStackTrace();
             return new SkidfuscatorConfig();

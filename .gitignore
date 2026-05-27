@@ -99,6 +99,7 @@ dev.skidfuscator.obfuscator/out/production/resources/log4j.properties
 dev.skidfuscator.obfuscator/out/test/resources/exempt.txt
 
 skidfuscator.log
+skidfuscator-error-*.txt
 
 calculations.txt
 

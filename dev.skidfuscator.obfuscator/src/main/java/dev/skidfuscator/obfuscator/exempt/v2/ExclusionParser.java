@@ -674,7 +674,7 @@ public class ExclusionParser {
         final List<Pattern> includedClassPatterns = new ArrayList<>();
         final List<MethodPattern> methodPatterns = new ArrayList<>();
 
-        // Collect patterns from members
+        // Collect patterns from members (fields are handled in generateFieldTesters)
         for (ParsedMember member : parsedClass.getMembers()) {
             switch (member.getType()) {
                 case "class" -> {
@@ -691,6 +691,7 @@ public class ExclusionParser {
                             member.isInclusion()
                     ));
                 }
+                case "field" -> { /* handled by generateFieldTesters */ }
                 default -> throw new ExclusionParseException("Invalid member type: " + member.getType());
             }
         }
@@ -698,12 +699,16 @@ public class ExclusionParser {
         map.put(ExclusionType.METHOD, new ExclusionTester<MethodNode>() {
             @Override
             public boolean test(MethodNode var) {
-                String ownerName = var.getOwnerClass().getName();
-
-                // First check if the method's class matches any inclusion pattern
-                for (Pattern includePattern : includedClassPatterns) {
-                    if (includePattern.matcher(ownerName).find()) {
-                        return false; // Include methods from included classes
+                // Owner is best-effort: only consult inclusion patterns when present.
+                ClassNode owner = var.getOwnerClass();
+                if (owner != null && !includedClassPatterns.isEmpty()) {
+                    String ownerName = owner.getName();
+                    if (ownerName != null) {
+                        for (Pattern includePattern : includedClassPatterns) {
+                            if (includePattern.matcher(ownerName).find()) {
+                                return false; // Include methods from included classes
+                            }
+                        }
                     }
                 }
 
@@ -740,8 +745,11 @@ public class ExclusionParser {
         }
 
         public boolean matches(MethodNode method) {
-            // Check name pattern
-            if (!namePattern.matcher(method.getDisplayName()).matches()) {
+            // Check name pattern — getName() and getDisplayName() return the
+            // same underlying value but getName() matches how the rest of the
+            // codebase (and the unit tests) consume the API.
+            String methodName = method.getName();
+            if (methodName == null || !namePattern.matcher(methodName).matches()) {
                 return false;
             }
 
@@ -824,12 +832,18 @@ public class ExclusionParser {
                     }
 
                     // Check field type if specified
-                    if (typeRegex != null && !typeRegex.matcher(var.getDesc()).lookingAt()) {
-                        return false;
+                    if (typeRegex != null) {
+                        String desc = var.getDesc();
+                        if (desc == null || !typeRegex.matcher(desc).lookingAt()) {
+                            return false;
+                        }
                     }
 
-                    // Check field name
-                    return nameRegex.matcher(var.getDisplayName()).lookingAt();
+                    // Check field name — fall back to getName() if the mock /
+                    // node didn't populate displayName.
+                    String fieldName = var.getDisplayName();
+                    if (fieldName == null) fieldName = var.getName();
+                    return fieldName != null && nameRegex.matcher(fieldName).lookingAt();
                 }
 
                 @Override

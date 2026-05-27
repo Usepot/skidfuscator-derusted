@@ -23,6 +23,7 @@ import java.util.jar.JarInputStream;
 
 public class SampleJarTest {
 
+    @Disabled("Requires src/test/resources/test.jar fixture which is not committed to the repo")
     @RepeatedTest(1)
     public void test2() throws Exception {
         final File input = new File("src/test/resources/test.jar");

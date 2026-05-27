@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
  * Handles HOCON configuration generation using Lightbend Config library.
  */
 public class SkidfuscatorConfig {
-    private final Map<String, ConfigValue> configMap = new HashMap<>();
+    private final Map<String, ConfigValue> configMap = new LinkedHashMap<>();
     
     /**
      * Adds a transformer configuration block.
@@ -40,6 +40,16 @@ public class SkidfuscatorConfig {
     public void setGlobalExemptions(List<String> exemptions) {
         if (exemptions != null && !exemptions.isEmpty()) {
             configMap.put("exempt", ConfigValueFactory.fromIterable(exemptions));
+        }
+    }
+
+    /**
+     * Sets v2 global exclusions for the obfuscator.
+     * @param exclusions List of v2 exclusion patterns
+     */
+    public void setGlobalExclusions(List<String> exclusions) {
+        if (exclusions != null && !exclusions.isEmpty()) {
+            configMap.put("exclude", ConfigValueFactory.fromIterable(exclusions));
         }
     }
     

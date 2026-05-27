@@ -35,7 +35,7 @@ public class PrimitiveParametersAnalyzer extends Analyzer {
         Type[] argumentTypes = Type.getArgumentTypes(methodNode.desc);
 
         for (Type type : argumentTypes) {
-            if (!isPrimitiveType(type)) {
+            if (!isAcceptable(type)) {
                 return impure(String.format(
                         "Argument %s is not a primitive type and not a pure class", type.getDescriptor()
                 ));
@@ -44,7 +44,7 @@ public class PrimitiveParametersAnalyzer extends Analyzer {
 
         // Also check return type
         Type returnType = Type.getReturnType(methodNode.desc);
-        if (!isPrimitiveType(returnType) && !returnType.getDescriptor().equals("V") && !context.isPure(returnType.getInternalName())) {
+        if (!returnType.getDescriptor().equals("V") && !isAcceptable(returnType)) {
             return impure(
                     String.format("Return type %s is not a primitive type and not a pure class", returnType.getDescriptor())
             );
@@ -53,19 +53,30 @@ public class PrimitiveParametersAnalyzer extends Analyzer {
         return pure();
     }
 
-    private boolean isPrimitiveType(Type type) {
-        // Handle arrays
+    /**
+     * A type is acceptable for a pure method when it is either:
+     *   - a primitive (or {@link String}),
+     *   - an array of acceptable element types, or
+     *   - a reference type that has not been marked impure in the context.
+     *
+     * The reference-type leg matches the original return-type semantics so the
+     * analyzer doesn't reject methods that legitimately take immutable
+     * domain objects (Matrix, ImmutablePoint, Comparable, ...).
+     */
+    private boolean isAcceptable(Type type) {
         if (type.getSort() == Type.ARRAY) {
-            // Do not support arrays just yet
-            if (true) {
-                return false;
-            }
-            // Get the element type of the array
-            Type elementType = type.getElementType();
-            return PRIMITIVE_DESCRIPTORS.contains(elementType.getDescriptor());
+            return isAcceptable(type.getElementType());
         }
+        if (isPrimitiveType(type)) {
+            return true;
+        }
+        return context.isPure(type.getInternalName());
+    }
 
-        // Handle primitive types
+    private boolean isPrimitiveType(Type type) {
+        if (type.getSort() == Type.ARRAY) {
+            return isPrimitiveType(type.getElementType());
+        }
         return PRIMITIVE_DESCRIPTORS.contains(type.getDescriptor());
     }
 }
