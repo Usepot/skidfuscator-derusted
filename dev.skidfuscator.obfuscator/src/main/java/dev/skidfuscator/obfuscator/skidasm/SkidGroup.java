@@ -118,7 +118,7 @@ public class SkidGroup {
         }
 
         for (SkidInvocation invoker : invokers) {
-            invoker.getExpr().setDesc(desc);
+            invoker.setDesc(desc);
         }
     }
 
@@ -142,15 +142,46 @@ public class SkidGroup {
         this.implicitFunction = implicitFunction;
     }
 
+    private boolean hasFragileOwner() {
+        return methodNodeList.stream().anyMatch(this::hasFragileOwner);
+    }
+
+    private boolean hasFragileOwner(final MethodNode methodNode) {
+        return methodNode.owner.node.outerClass != null
+                || methodNode.owner.node.nestHostClass != null
+                || methodNode.owner.isPrivate()
+                || (methodNode.owner.node.innerClasses != null
+                && methodNode.owner.node.innerClasses
+                .stream().anyMatch(e -> e.name.equals(methodNode.owner.node.name)));
+    }
+
     public boolean isEntryPoint() {
-        return !application
+        if (!skidfuscator.getConfig().getBoolean("interprocedural.threadMixedInvokers", false)) {
+            return !application
+                    || this.isImplicitFunction()
+                    || this.getInvokers().isEmpty()
+                    || this.getInvokers().stream().anyMatch(SkidInvocation::isExempt)
+                    || this.getInvokers().stream().anyMatch(SkidInvocation::isDynamic)
+                    || this.isAnnotation()
+                    || this.isEnumerator()
+                    || this.isMixin();
+        }
+
+        if (!application
                 || this.isImplicitFunction()
-                || this.getInvokers().isEmpty()
-                || this.getInvokers().stream().anyMatch(SkidInvocation::isExempt)
-                || this.getInvokers().stream().anyMatch(SkidInvocation::isDynamic)
                 || this.isAnnotation()
                 || this.isEnumerator()
-                || this.isMixin();
+                || this.isMixin()
+                || hasFragileOwner()) {
+            return true;
+        }
+
+        if (this.getInvokers().isEmpty()) {
+            return true;
+        }
+
+        return this.getInvokers().stream()
+                .noneMatch(invoker -> !invoker.isExempt() && !invoker.isDynamic());
     }
     @Override
     public boolean equals(Object o) {

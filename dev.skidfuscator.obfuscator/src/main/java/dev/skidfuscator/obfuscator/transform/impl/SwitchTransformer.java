@@ -39,7 +39,7 @@ public class SwitchTransformer extends AbstractTransformer {
     @Listen
     void handle(final RunMethodTransformEvent event) {
         final SkidMethodNode methodNode = event.getMethodNode();
-        if (methodNode.isAbstract() || methodNode.isInit()) {
+        if (shouldSkipMethod(methodNode)) {
             this.skip();
             return;
         }

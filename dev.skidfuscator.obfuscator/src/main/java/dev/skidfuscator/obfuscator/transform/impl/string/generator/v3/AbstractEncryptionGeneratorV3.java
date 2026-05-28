@@ -2,8 +2,10 @@ package dev.skidfuscator.obfuscator.transform.impl.string.generator.v3;
 
 import dev.skidfuscator.obfuscator.skidasm.SkidClassNode;
 import dev.skidfuscator.obfuscator.skidasm.SkidFieldNode;
+import dev.skidfuscator.obfuscator.skidasm.SkidGroup;
 import dev.skidfuscator.obfuscator.skidasm.SkidMethodNode;
 import dev.skidfuscator.obfuscator.skidasm.builder.SkidMethodNodeBuilder;
+import dev.skidfuscator.obfuscator.skidasm.cfg.SkidBlock;
 import dev.skidfuscator.obfuscator.transform.impl.string.generator.EncryptionGeneratorV3;
 import dev.skidfuscator.obfuscator.util.RandomUtil;
 import dev.skidfuscator.obfuscator.util.misc.Pair;
@@ -14,13 +16,16 @@ import org.mapleir.asm.FieldNode;
 import org.mapleir.asm.MethodNode;
 import org.mapleir.ir.code.Expr;
 import org.mapleir.ir.code.Stmt;
+import org.mapleir.ir.code.expr.ArithmeticExpr;
 import org.mapleir.ir.code.expr.ConstantExpr;
 import org.mapleir.ir.code.expr.FieldLoadExpr;
 import org.mapleir.ir.code.expr.NewArrayExpr;
+import org.mapleir.ir.code.expr.VarExpr;
 import org.mapleir.ir.code.expr.invoke.InvocationExpr;
 import org.mapleir.ir.code.expr.invoke.StaticInvocationExpr;
 import org.mapleir.ir.code.stmt.FieldStoreStmt;
 import org.mapleir.ir.code.stmt.ReturnStmt;
+import org.mapleir.ir.locals.Local;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
@@ -309,6 +314,31 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
                 desc,
                 true
         );
+    }
+
+    protected int getThreadedStringSeed(final SkidMethodNode node, final SkidBlock block) {
+        final SkidGroup group = node.getGroup();
+        if (group != null && group.isInjectedMethodPredicate()) {
+            return node.getBlockPredicate(block) ^ group.getPredicate().getPublic();
+        }
+
+        return node.getBlockPredicate(block);
+    }
+
+    protected Expr getThreadedStringSeedExpr(final SkidMethodNode node, final SkidBlock block) {
+        Expr seed = node.getFlowPredicate().getGetter().get(block);
+        final SkidGroup group = node.getGroup();
+
+        if (group != null && group.isInjectedMethodPredicate()) {
+            final Local local = node.getCfg().getLocals().get(group.getStackHeight());
+            seed = new ArithmeticExpr(
+                    seed,
+                    new VarExpr(local, Type.INT_TYPE),
+                    ArithmeticExpr.Operator.XOR
+            );
+        }
+
+        return seed;
     }
 
     protected static <T> Expr generateArrayGenerator(final SkidClassNode node, final T[] array, final Type elementType) {

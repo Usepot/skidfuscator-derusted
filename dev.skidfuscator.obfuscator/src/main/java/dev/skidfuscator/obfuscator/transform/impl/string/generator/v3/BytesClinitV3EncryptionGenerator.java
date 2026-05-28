@@ -32,7 +32,7 @@ public class BytesClinitV3EncryptionGenerator extends AbstractEncryptionGenerato
         final byte[] encrypted = input.getBytes(StandardCharsets.UTF_16);
 
         // Super simple converting our integer to string, and getting bytes.
-        final byte[] keyBytes = Integer.toString(node.getBlockPredicate(block)).getBytes();
+        final byte[] keyBytes = Integer.toString(getThreadedStringSeed(node, block)).getBytes();
 
         // Super simple XOR
         for (int i = 0; i < encrypted.length; i++) {
@@ -46,7 +46,7 @@ public class BytesClinitV3EncryptionGenerator extends AbstractEncryptionGenerato
                 "decryptor",
                 "([BI)Ljava/lang/String;",
                 generateByteArrayGenerator(node.getParent(), encrypted),
-                node.getFlowPredicate().getGetter().get(block)
+                getThreadedStringSeedExpr(node, block)
         );
     }
 

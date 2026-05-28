@@ -32,16 +32,14 @@ allprojects {
         testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.0'
     }
 
-    compileJava {
-        options.encoding = "UTF-8" // Will fail on the non-ascii comments if not set
-    }
-
     tasks.withType(JavaCompile).configureEach {
+        options.encoding = "UTF-8"
+
         if (sourceCompatibility == JavaVersion.VERSION_17) {
             options.compilerArgs += [
                 '--add-exports', 'java.base/jdk.internal.reflect=ALL-UNNAMED',
                 '--add-exports', 'java.base/jdk.internal.util=ALL-UNNAMED',
-                '--add-exports', 'java.base/sun.io.ch=ALL-UNNAMED'
+                '--add-exports', 'java.base/sun.nio.ch=ALL-UNNAMED'
         ]
         }
     }
@@ -50,7 +48,7 @@ allprojects {
             jvmArgs += [
                 '--add-exports', 'java.base/jdk.internal.reflect=ALL-UNNAMED',
                 '--add-exports', 'java.base/jdk.internal.util=ALL-UNNAMED',
-                '--add-exports', 'java.base/sun.io.ch=ALL-UNNAMED'
+                '--add-exports', 'java.base/sun.nio.ch=ALL-UNNAMED'
         ]
         }
     }

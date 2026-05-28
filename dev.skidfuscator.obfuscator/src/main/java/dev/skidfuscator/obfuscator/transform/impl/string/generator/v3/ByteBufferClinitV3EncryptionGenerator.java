@@ -69,7 +69,7 @@ public class ByteBufferClinitV3EncryptionGenerator extends AbstractEncryptionGen
         final byte[] encrypted = input.getBytes(StandardCharsets.UTF_16BE);
 
         // Super simple converting our integer to string, and getting bytes.
-        final byte[] keyBytes = Integer.toString(node.getBlockPredicate(block)).getBytes();
+        final byte[] keyBytes = Integer.toString(getThreadedStringSeed(node, block)).getBytes();
 
         // Super simple XOR
         for (int i = 0; i < encrypted.length; i++) {
@@ -103,7 +103,7 @@ public class ByteBufferClinitV3EncryptionGenerator extends AbstractEncryptionGen
                 "decryptor",
                 "([BI)Ljava/lang/String;",
                 generateByteArrayGenerator(node.getParent(), encryptedByteBuffer),
-                node.getFlowPredicate().getGetter().get(block)
+                getThreadedStringSeedExpr(node, block)
         );
     }
 

@@ -98,7 +98,7 @@ public class SkidInvocation {
                 break;
             case METHOD:
                 Skidfuscator.LOGGER.warn("This method is exempted! This is dangerous behaviour...\n");
-                methodNode.name = desc;
+                methodNode.desc = desc;
                 break;
             case METHOD_DYNAMIC:
                 Skidfuscator.LOGGER.warn("This method is exempted! This is dangerous behaviour...\n");

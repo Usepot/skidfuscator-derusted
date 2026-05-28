@@ -728,14 +728,6 @@ public class Skidfuscator {
         final List<Transformer> transformers = new ArrayList<>();
 
         if (!SkidFlowGraphDumper.TEST_COMPUTE) {
-            if (tsConfig.hasPath("stringEncryption.type")) {
-                switch (tsConfig.getEnum(StringEncryptionType.class, "stringEncryption.type")) {
-                    case STANDARD: transformers.add(new StringTransformerV2(this)); break;
-                }
-            } else {
-                transformers.add(new StringTransformerV2(this));
-            }
-
             transformers.addAll(Arrays.asList(
                     // BASE
                     new RandomInitTransformer(this),
@@ -758,6 +750,14 @@ public class Skidfuscator {
                     //new SimpleOutlinerTransformer()
                     //
             ));
+
+            if (tsConfig.hasPath("stringEncryption.type")) {
+                switch (tsConfig.getEnum(StringEncryptionType.class, "stringEncryption.type")) {
+                    case STANDARD: transformers.add(new StringTransformerV2(this)); break;
+                }
+            } else {
+                transformers.add(new StringTransformerV2(this));
+            }
         } else {
             transformers.addAll(Arrays.asList(
             ));

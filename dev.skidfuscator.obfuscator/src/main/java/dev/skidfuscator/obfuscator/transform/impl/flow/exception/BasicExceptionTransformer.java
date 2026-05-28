@@ -58,11 +58,8 @@ public class BasicExceptionTransformer extends AbstractTransformer {
          * Init because it causes issues
          * Null CFG because it causes issues
          */
-        if (methodNode.isExempt(
-                MethodExempt.ABSTRACT,
-                MethodExempt.INIT,
-                MethodExempt.NULLCFG
-        )) {
+        if (methodNode.isExempt(MethodExempt.ABSTRACT, MethodExempt.NULLCFG)
+                || (methodNode.isInit() && !isConstructorObfuscationEnabled())) {
             this.skip();
             return;
         }

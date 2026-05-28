@@ -3,6 +3,7 @@ package dev.skidfuscator.obfuscator.transform;
 import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.config.DefaultTransformerConfig;
 import dev.skidfuscator.obfuscator.event.EventBus;
+import dev.skidfuscator.obfuscator.skidasm.SkidMethodNode;
 import dev.skidfuscator.obfuscator.util.ConsoleColors;
 import dev.skidfuscator.obfuscator.util.MiscUtil;
 import dev.skidfuscator.obfuscator.util.RandomUtil;
@@ -42,6 +43,15 @@ public abstract class AbstractTransformer implements Transformer {
         return config.isEnabled()
                 && (!requiresSdk
                 || skidfuscator.getConfig().getBoolean("sdk.enabled", true));
+    }
+
+    protected boolean isConstructorObfuscationEnabled() {
+        return skidfuscator.getConfig().getBoolean("constructorObfuscation.enabled", false);
+    }
+
+    protected boolean shouldSkipMethod(final SkidMethodNode methodNode) {
+        return methodNode.isAbstract()
+                || (methodNode.isInit() && !isConstructorObfuscationEnabled());
     }
 
     public DefaultTransformerConfig getConfig() {

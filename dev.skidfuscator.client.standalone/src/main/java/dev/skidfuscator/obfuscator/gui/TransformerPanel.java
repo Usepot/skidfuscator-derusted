@@ -57,7 +57,9 @@ public class TransformerPanel extends JPanel {
 
     private static final List<String> DEFAULT_GLOBAL_EXEMPTIONS = Arrays.asList(
             "class{^jghost\\/}",
-            "class{Dump}");
+            "class{Dump}",
+            "class{^org\\/jnativehook\\/}",
+            "class{^com\\/sun\\/jna\\/}");
 
     private final Map<String, TransformerCard> sections = new LinkedHashMap<>();
     private final File defaultConfigFile = new File("skidfuscator-config.conf");
@@ -217,6 +219,16 @@ public class TransformerPanel extends JPanel {
                 "Hardens the seed plumbing with extra randomisation per call-site.",
                 true, null, Collections.emptyList());
 
+        addSection(host, "interproceduralPredicate", "Predicate Seed Storage",
+                "Controls the base predicate renderer. Dynamic class predicates restore field-backed class/static seeds.",
+                true, null,
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("dynamicClassPredicates").label("Dynamic class predicates")
+                        .type(TransformerOptionType.BOOLEAN)
+                        .defaultValue(false)
+                        .description("Store class/static predicates in private static fields instead of inlining constants")
+                        .build()));
+
         // ---------------- Pre-processing ----------------
         addCategory(host, "Pre-processing", "Optional passes that prepare the input jar before Skidfuscator runs.");
 
@@ -359,6 +371,18 @@ public class TransformerPanel extends JPanel {
         addSection(host, "sdk", "SDK Injector",
                 "Injects the Skidfuscator runtime SDK into the output jar. Required by SDK-dependent passes.",
                 true, null, Collections.emptyList());
+
+        addSection(host, "methodCallObfuscation", "Method Call Obfuscation",
+                "Rewrites eligible method calls into invokedynamic callsites with per-class bootstrap resolvers. Off by default.",
+                false, "Risky", Collections.emptyList());
+
+        addSection(host, "signatureObfuscation", "Signature Obfuscation",
+                "Rewrites internally-called method signatures to byte[] plus Object[] carrier arguments. Off by default.",
+                false, "Risky", Collections.emptyList());
+
+        addSection(host, "constructorObfuscation", "Constructor Obfuscation",
+                "Allows eligible transformers to process constructor bodies after super()/this() initialization. Off by default.",
+                false, "Risky", Collections.emptyList());
 
         addCategory(unusedHost, "Advanced", "Experimental or enterprise config entries not consumed by this build.");
 

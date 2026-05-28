@@ -41,8 +41,7 @@ public class StringTransformerV2 extends AbstractTransformer {
     void handle(final RunMethodTransformEvent event) {
         final SkidMethodNode methodNode = event.getMethodNode();
 
-        if (methodNode.isAbstract()
-                || methodNode.isInit()) {
+        if (shouldSkipMethod(methodNode)) {
             this.skip();
             return;
         }
@@ -109,6 +108,7 @@ public class StringTransformerV2 extends AbstractTransformer {
                 .filter(SkidConstantExpr.class::isInstance)
                 .map(SkidConstantExpr.class::cast)
                 .filter(e -> !e.isExempt())
+                .filter(e -> !methodNode.isInit() || !e.getBlock().isFlagSet(SkidBlock.FLAG_NO_OPAQUE))
                 .filter(constantExpr -> constantExpr.getConstant() instanceof String)
                 /*
                  * We collect since we're modifying the expression stream

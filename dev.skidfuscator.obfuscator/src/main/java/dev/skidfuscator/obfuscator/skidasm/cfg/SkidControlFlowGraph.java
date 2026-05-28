@@ -104,6 +104,10 @@ public class SkidControlFlowGraph extends ControlFlowGraph {
         }
     }
 
+    public void verifyNoDump() {
+        super.verify();
+    }
+
     @Override
     public Stream<CodeUnit> allExprStream() {
         return vertices()

@@ -14,8 +14,8 @@ import dev.skidfuscator.obfuscator.predicate.opaque.ClassOpaquePredicate;
 import dev.skidfuscator.obfuscator.predicate.opaque.MethodOpaquePredicate;
 import dev.skidfuscator.obfuscator.skidasm.*;
 import dev.skidfuscator.obfuscator.skidasm.cfg.SkidBlock;
+import dev.skidfuscator.obfuscator.skidasm.expr.SkidConstantExpr;
 import dev.skidfuscator.obfuscator.skidasm.expr.SkidIntegerParseStaticInvocationExpr;
-import dev.skidfuscator.obfuscator.skidasm.fake.FakeArithmeticExpr;
 import dev.skidfuscator.obfuscator.skidasm.stmt.SkidCopyVarStmt;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 import dev.skidfuscator.obfuscator.util.OpcodeUtil;
@@ -73,7 +73,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
          * If the skid group is an entry point (it has no direct invocation)
          * or in the future when we support reflection calls
          */
-        if (entryPoint || skidGroup.isStatical()) {
+        if (entryPoint || (skidGroup.isStatical() && !threadStaticMethods())) {
             stackHeight = OpcodeUtil.getArgumentsSizes(skidGroup.getDesc());
 
             if (skidGroup.isStatical())
@@ -165,15 +165,24 @@ public class InterproceduralTransformer extends AbstractTransformer {
             for (SkidInvocation invoker : skidGroup.getInvokers()) {
                 assert invoker != null : String.format("Invoker %s is null!", Arrays.toString(skidGroup.getInvokers().toArray()));
 
+                if (invoker.getExpr() == null) {
+                    Skidfuscator.LOGGER.warn(
+                            "Skipping non-IR invoker for "
+                                    + skidGroup.getName()
+                                    + skidGroup.getDesc()
+                                    + " from "
+                                    + invoker.getOwner().getDisplayName()
+                    );
+                    continue;
+                }
+
                 if (invoker.isTainted()) {
-                    Skidfuscator.LOGGER.warn("Warning! Almost duplicated call on " + invoker.asExpr().toString());
+                    Skidfuscator.LOGGER.warn("Warning! Almost duplicated call on " + invoker.getExpr());
                     continue;
                 }
 
                 //if (skidGroup.getName().equals("getConfig"))
                 //    System.out.println("Replacing invoker " + invoker.asExpr().getOwner() + "#" + invoker.asExpr().getName() + invoker.asExpr().getDesc() + " in " + invoker.getOwner().toString());
-
-                assert invoker.getExpr() != null : String.format("Invoker %s is null!", invoker.getOwner().getDisplayName());
                 final boolean isDynamic = invoker.getExpr() instanceof DynamicInvocationExpr;
 
                 int index = 0;
@@ -194,8 +203,14 @@ public class InterproceduralTransformer extends AbstractTransformer {
                         params.length
                 );
 
-                final ConstantExpr constant = new ConstantExpr(skidGroup.getPredicate().getPublic());
-                args[args.length - 1] = constant;
+                /*
+                 * The seed argument must be a SkidConstantExpr (not a plain
+                 * ConstantExpr) so the NumberTransformer's PostMethod pass picks
+                 * it up and rewrites it into a flow-seed-dependent expression
+                 * (n ^ C). A plain ConstantExpr is skipped and leaks the raw
+                 * public seed at the call site, defeating the obfuscation.
+                 */
+                args[args.length - 1] = new SkidConstantExpr(skidGroup.getPredicate().getPublic());
 
                 for (Expr arg : args) {
                     assert arg != null : "Invocation now is null? " + invoker.asExpr();
@@ -225,7 +240,6 @@ public class InterproceduralTransformer extends AbstractTransformer {
                 } else {
                     final Parameter parameter = new Parameter(invoker.getExpr().getDesc());
                     parameter.insertParameter(Type.INT_TYPE, indexGroup);
-                    //invoker.getExpr().setDesc(parameter.getDesc());
                 }
             }
         }
@@ -234,6 +248,10 @@ public class InterproceduralTransformer extends AbstractTransformer {
         skidGroup.setDesc(parameterGroup.getDesc());
         skidGroup.setStackHeight(finalStackHeight);
         skidGroup.setInjectedMethodPredicate(true);
+    }
+
+    private boolean threadStaticMethods() {
+        return getConfig().getBoolean("threadStaticMethods", false);
     }
 
     /**

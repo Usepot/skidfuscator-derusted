@@ -51,7 +51,7 @@ public class NumberTransformer extends AbstractTransformer {
         final SkidMethodNode methodNode = event.getMethodNode();
         final Skidfuscator skidfuscator = event.getSkidfuscator();
 
-        if (methodNode.isAbstract() || methodNode.isInit()) {
+        if (shouldSkipMethod(methodNode)) {
             this.skip();
             return;
         }

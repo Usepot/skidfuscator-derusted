@@ -54,8 +54,7 @@ public abstract class AbstractExpressionTransformer extends AbstractTransformer 
     }
 
     protected boolean shouldSkipMethod(SkidMethodNode methodNode) {
-        return methodNode.isAbstract() 
-                || methodNode.isInit() 
+        return super.shouldSkipMethod(methodNode)
                 || methodNode.node.instructions.size() > 10000;
     }
 

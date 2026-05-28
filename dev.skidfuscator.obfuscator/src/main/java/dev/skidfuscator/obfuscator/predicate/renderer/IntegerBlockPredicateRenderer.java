@@ -26,6 +26,7 @@ import dev.skidfuscator.obfuscator.predicate.renderer.impl.UnconditionalJumpRend
 import dev.skidfuscator.obfuscator.skidasm.*;
 import dev.skidfuscator.obfuscator.skidasm.builder.SkidClassNodeBuilder;
 import dev.skidfuscator.obfuscator.skidasm.cfg.SkidBlock;
+import dev.skidfuscator.obfuscator.skidasm.cfg.SkidControlFlowGraph;
 import dev.skidfuscator.obfuscator.skidasm.expr.SkidIntegerParseStaticInvocationExpr;
 import dev.skidfuscator.obfuscator.skidasm.fake.FakeArithmeticExpr;
 import dev.skidfuscator.obfuscator.skidasm.fake.FakeBlock;
@@ -63,6 +64,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
     public class IntegerBlockPredicateRenderer extends AbstractTransformer {
+    private static final String DYNAMIC_CLASS_PREDICATES_KEY = "dynamicClassPredicates";
+
     public IntegerBlockPredicateRenderer(Skidfuscator skidfuscator, List<Transformer> children) {
         super(skidfuscator,"Interprocedural Predicate", children);
     }
@@ -205,6 +208,14 @@ import java.util.stream.Collectors;
         final ClassOpaquePredicate clazzInstancePredicate = classNode.getClassPredicate();
         final ClassOpaquePredicate clazzStaticPredicate = classNode.getStaticPredicate();
 
+        if (getConfig().getBoolean(DYNAMIC_CLASS_PREDICATES_KEY, false)
+                && !classNode.isInterface()
+                && !classNode.isAnnotation()) {
+            createDynamicClassPredicate(classNode, clazzInstancePredicate);
+            createDynamicClassPredicate(classNode, clazzStaticPredicate);
+            return;
+        }
+
         /*
          * Here the getter to access the value is a constant expression loading the
          * constant expr.
@@ -241,6 +252,33 @@ import java.util.stream.Collectors;
         clazzStaticPredicate.setSetter(PopStmt::new);
     }
 
+    private void createDynamicClassPredicate(final SkidClassNode classNode,
+                                             final ClassOpaquePredicate predicate) {
+        final SkidFieldNode staticFieldNode = classNode.createField()
+                .access(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)
+                .name(RandomUtil.randomIsoString(10))
+                .desc("I")
+                .value(predicate.get())
+                .build();
+
+        predicate.setGetter(vertex -> new FieldLoadExpr(
+                null,
+                classNode.node.name,
+                staticFieldNode.node.name,
+                staticFieldNode.node.desc,
+                true
+        ));
+
+        predicate.setSetter(expr -> new FieldStoreStmt(
+                null,
+                expr,
+                classNode.node.name,
+                staticFieldNode.node.name,
+                staticFieldNode.node.desc,
+                true
+        ));
+    }
+
 
     @Listen
     void handle(final PostMethodTransformEvent event) {
@@ -250,11 +288,7 @@ import java.util.stream.Collectors;
         final SkidBlock seedEntry = (SkidBlock) entryPoint;
         cfg.recomputeEdges();
 
-        try {
-            cfg.verify();
-        } catch (Exception e) {
-            event.warn("Failed to verify CFG for method " + methodNode.getName());
-        }
+        verifyWithoutDump(event, methodNode, cfg, "pre-render");
 
         /*
          *    ____     __
@@ -446,13 +480,30 @@ import java.util.stream.Collectors;
             System.out.println(cfg.toString());
         }
         cfg.recomputeEdges();
-        try {
-            cfg.verify();
-        } catch (Exception e) {
-            event.warn("Failed to verify post-CFG for method " + methodNode.getName() + e);
-        }
+        verifyWithoutDump(event, methodNode, cfg, "post-render");
 
         return;
+    }
+
+    private void verifyWithoutDump(final PostMethodTransformEvent event,
+                                   final SkidMethodNode methodNode,
+                                   final ControlFlowGraph cfg,
+                                   final String stage) {
+        try {
+            if (cfg instanceof SkidControlFlowGraph) {
+                ((SkidControlFlowGraph) cfg).verifyNoDump();
+            } else {
+                cfg.verify();
+            }
+        } catch (Exception e) {
+            event.warn(
+                    "Failed to verify " + stage + " CFG for method "
+                            + methodNode.owner.getName() + "#"
+                            + methodNode.getName()
+                            + methodNode.getDesc()
+                            + ": " + e.getMessage()
+            );
+        }
     }
 
     private void addSeedLoader(final BasicBlock block,
