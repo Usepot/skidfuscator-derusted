@@ -251,7 +251,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
     }
 
     private boolean threadStaticMethods() {
-        return getConfig().getBoolean("threadStaticMethods", false);
+        return getConfig().getBoolean("threadStaticMethods", true);
     }
 
     /**

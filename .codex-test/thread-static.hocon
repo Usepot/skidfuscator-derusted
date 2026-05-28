@@ -1,0 +1,8 @@
+interprocedural {
+  threadStaticMethods: true
+}
+
+stringEncryption {
+  type: STANDARD
+  enabled: true
+}

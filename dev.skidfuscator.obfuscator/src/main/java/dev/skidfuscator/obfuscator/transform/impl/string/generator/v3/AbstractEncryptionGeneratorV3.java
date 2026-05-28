@@ -317,28 +317,11 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
     }
 
     protected int getThreadedStringSeed(final SkidMethodNode node, final SkidBlock block) {
-        final SkidGroup group = node.getGroup();
-        if (group != null && group.isInjectedMethodPredicate()) {
-            return node.getBlockPredicate(block) ^ group.getPredicate().getPublic();
-        }
-
         return node.getBlockPredicate(block);
     }
 
     protected Expr getThreadedStringSeedExpr(final SkidMethodNode node, final SkidBlock block) {
-        Expr seed = node.getFlowPredicate().getGetter().get(block);
-        final SkidGroup group = node.getGroup();
-
-        if (group != null && group.isInjectedMethodPredicate()) {
-            final Local local = node.getCfg().getLocals().get(group.getStackHeight());
-            seed = new ArithmeticExpr(
-                    seed,
-                    new VarExpr(local, Type.INT_TYPE),
-                    ArithmeticExpr.Operator.XOR
-            );
-        }
-
-        return seed;
+        return node.getFlowPredicate().getGetter().get(block);
     }
 
     protected static <T> Expr generateArrayGenerator(final SkidClassNode node, final T[] array, final Type elementType) {
