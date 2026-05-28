@@ -45,6 +45,11 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     private static final String BYTE_ARRAY_DESC = "[B";
     private static final String OBJECT_ARRAY_DESC = "[Ljava/lang/Object;";
 
+    /** Every class in the jar (incl. exempt), used to detect in-jar overrides. */
+    private Map<String, org.objectweb.asm.tree.ClassNode> universe;
+    /** name+desc -> classes that declare it non-private, for fast override lookup. */
+    private Map<String, List<org.objectweb.asm.tree.ClassNode>> declarers;
+
     public SignatureObfuscationTransformer(final Skidfuscator skidfuscator) {
         super(skidfuscator, "Signature Obfuscation");
     }
@@ -56,6 +61,8 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
 
     public void apply() {
         final Map<String, org.objectweb.asm.tree.ClassNode> classes = loadApplicationClasses();
+        this.universe = loadAllClasses();
+        this.declarers = indexDeclarers(this.universe);
         final Map<MethodKey, MethodNode> methods = indexMethods(classes);
         final Set<MethodKey> handleReferences = collectHandleReferences(classes);
         final Map<MethodKey, Integer> internalCallCounts = collectInternalCalls(classes);
@@ -125,6 +132,90 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     private boolean isNativeSensitiveClass(final String name) {
         return name != null
                 && (name.startsWith("org/jnativehook/") || name.startsWith("com/sun/jna/"));
+    }
+
+    /**
+     * Every class in the jar, including exempt ones. Exempt classes are NOT
+     * candidates themselves, but they may still <i>override</i> an app method,
+     * so they must be visible when deciding whether a candidate is safe.
+     */
+    private Map<String, org.objectweb.asm.tree.ClassNode> loadAllClasses() {
+        final Map<String, org.objectweb.asm.tree.ClassNode> all = new LinkedHashMap<>();
+        for (JarClassData classData : skidfuscator.getJarContents().getClassContents()) {
+            final ClassNode classNode = classData.getClassNode();
+            if (classNode == null || classNode.node == null || isNativeSensitiveClass(classNode.node.name)) {
+                continue;
+            }
+            all.put(classNode.node.name, classNode.node);
+        }
+        return all;
+    }
+
+    private Map<String, List<org.objectweb.asm.tree.ClassNode>> indexDeclarers(
+            final Map<String, org.objectweb.asm.tree.ClassNode> all) {
+        final Map<String, List<org.objectweb.asm.tree.ClassNode>> index = new HashMap<>();
+        for (org.objectweb.asm.tree.ClassNode classNode : all.values()) {
+            for (MethodNode method : classNode.methods) {
+                if ((method.access & Opcodes.ACC_PRIVATE) != 0) {
+                    continue;
+                }
+                index.computeIfAbsent(method.name + method.desc, ignored -> new ArrayList<>()).add(classNode);
+            }
+        }
+        return index;
+    }
+
+    /**
+     * True if any class in the jar (including exempt ones) is a subtype of the
+     * candidate's owner and redeclares the same name+desc — i.e. the candidate
+     * is the base of a virtual-dispatch family. Transforming only the base would
+     * silently bypass the override, so such methods are rejected.
+     */
+    private boolean isOverriddenInHierarchy(final MethodKey key) {
+        final List<org.objectweb.asm.tree.ClassNode> list = declarers.get(key.name + key.desc);
+        if (list == null) {
+            return false;
+        }
+        for (org.objectweb.asm.tree.ClassNode candidate : list) {
+            if (candidate.name.equals(key.owner)) {
+                continue;
+            }
+            if (isSubtypeOf(candidate.name, key.owner, new HashSet<>())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSubtypeOf(final String child, final String ancestor, final Set<String> visited) {
+        if (child == null || !visited.add(child)) {
+            return false;
+        }
+        if (child.equals(ancestor)) {
+            return true;
+        }
+        final org.objectweb.asm.tree.ClassNode node = resolveNode(child);
+        if (node == null) {
+            return false;
+        }
+        if (node.superName != null && isSubtypeOf(node.superName, ancestor, visited)) {
+            return true;
+        }
+        for (String itf : node.interfaces) {
+            if (isSubtypeOf(itf, ancestor, visited)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private org.objectweb.asm.tree.ClassNode resolveNode(final String name) {
+        final org.objectweb.asm.tree.ClassNode appNode = universe.get(name);
+        if (appNode != null) {
+            return appNode;
+        }
+        final ClassNode library = skidfuscator.getClassSource().findClassNode(name);
+        return library == null ? null : library.node;
     }
 
     private Map<MethodKey, MethodNode> indexMethods(final Map<String, org.objectweb.asm.tree.ClassNode> classes) {
@@ -221,7 +312,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             return false;
         }
 
-        if ((method.access & (Opcodes.ACC_NATIVE | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE)) != 0) {
+        if ((method.access & (Opcodes.ACC_NATIVE | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE | Opcodes.ACC_ABSTRACT)) != 0) {
             return false;
         }
 
@@ -231,6 +322,18 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
 
         final String newDesc = buildObfuscatedDesc(method.desc);
         if (method.desc.equals(newDesc)) {
+            return false;
+        }
+
+        /*
+         * private/static methods are invoked by exact reference (invokespecial/
+         * invokestatic), so they have no virtual-dispatch family and are always
+         * safe. Any other (overridable) method is rejected if the jar — app or
+         * exempt — already overrides it, because the override would keep the
+         * original descriptor and dispatch would diverge.
+         */
+        final boolean overridable = (method.access & (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)) == 0;
+        if (overridable && isOverriddenInHierarchy(key)) {
             return false;
         }
 

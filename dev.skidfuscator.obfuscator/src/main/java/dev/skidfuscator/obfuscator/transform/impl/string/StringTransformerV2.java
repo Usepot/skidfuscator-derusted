@@ -2,6 +2,7 @@ package dev.skidfuscator.obfuscator.transform.impl.string;
 
 import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.event.annotation.Listen;
+import dev.skidfuscator.obfuscator.event.impl.transform.clazz.FinalClassTransformEvent;
 import dev.skidfuscator.obfuscator.event.impl.transform.method.RunMethodTransformEvent;
 import dev.skidfuscator.obfuscator.event.impl.transform.skid.PostSkidTransformEvent;
 import dev.skidfuscator.obfuscator.skidasm.SkidClassNode;
@@ -17,6 +18,7 @@ import dev.skidfuscator.obfuscator.transform.impl.string.generator.v3.BytesV3Enc
 import dev.skidfuscator.obfuscator.transform.impl.string.generator.v3.VirtualizedStringEncryptionGenerator;
 import dev.skidfuscator.obfuscator.util.RandomUtil;
 import org.mapleir.asm.ClassNode;
+import org.mapleir.asm.FieldNode;
 import org.mapleir.ir.cfg.ControlFlowGraph;
 import org.mapleir.ir.code.CodeUnit;
 import org.mapleir.ir.code.Expr;
@@ -135,5 +137,24 @@ public class StringTransformerV2 extends AbstractTransformer {
     @Listen
     void handle(final PostSkidTransformEvent event) {
         keyMap.forEach((clazz, generator) -> generator.visitPost(clazz));
+    }
+
+    /*
+     * A static-final String keeps its plaintext in the field's ConstantValue
+     * attribute, which no method-body pass can reach. javac already inlines every
+     * read of such a constant into an LDC (encrypted above), so there is no
+     * getstatic left to satisfy — dropping the attribute removes the plaintext
+     * without changing runtime behaviour. Exempt classes never reach this event.
+     */
+    @Listen
+    void handle(final FinalClassTransformEvent event) {
+        final SkidClassNode classNode = event.getClassNode();
+
+        for (FieldNode field : classNode.getFields()) {
+            if (field.node.value instanceof String) {
+                field.node.value = null;
+                this.success();
+            }
+        }
     }
 }

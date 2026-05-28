@@ -105,20 +105,45 @@ public class VmHashTransformer implements HashTransformer {
             throw new IllegalStateException("No valid methods found for hash transformation");
         }
 
-        List<JavaMethod> methods = new ArrayList<>(methodMatches.keySet());
-        this.selectedMethod = methods.get(random.nextInt(methods.size()));
+        final List<JavaMethod> methods = new ArrayList<>(methodMatches.keySet());
 
-        Set<ParameterMatch> matches = methodMatches.get(selectedMethod);
-        List<ParameterMatch> paramList = new ArrayList<>(matches);
-        this.predicateParam = paramList.get(random.nextInt(paramList.size()));
+        while (!methods.isEmpty()) {
+            final JavaMethod candidate = methods.remove(random.nextInt(methods.size()));
 
-        /*System.out.println(String.format(
-                "Selecting method %s", selectedMethod.getOwner().getName() + "." + selectedMethod.getName() + selectedMethod.getDesc()
-        ));*/
+            /*
+             * [fix] SSVM can hand back a null mirror for some declared methods,
+             *       so a null key may have slipped into methodMatches. Picking it
+             *       here used to null out selectedMethod and NPE on getDesc(),
+             *       permanently breaking every later hash() call. Prune any bad
+             *       entry and keep looking instead of committing to it.
+             */
+            if (candidate == null || candidate.getDesc() == null) {
+                methodMatches.remove(candidate);
+                continue;
+            }
 
-        // Initialize random arguments for each parameter (except predicate param)
-        this.randomArgs = new Object[Type.getArgumentTypes(selectedMethod.getDesc()).length];
-        initializeRandomArgs();
+            final Set<ParameterMatch> matches = methodMatches.get(candidate);
+            if (matches == null || matches.isEmpty()) {
+                methodMatches.remove(candidate);
+                continue;
+            }
+
+            final List<ParameterMatch> paramList = new ArrayList<>(matches);
+            final ParameterMatch param = paramList.get(random.nextInt(paramList.size()));
+            final Object[] args = new Object[Type.getArgumentTypes(candidate.getDesc()).length];
+
+            /*
+             * Commit only once a fully valid selection is built, so a bad entry
+             * can never leave the transformer in a half-initialised state.
+             */
+            this.selectedMethod = candidate;
+            this.predicateParam = param;
+            this.randomArgs = args;
+            initializeRandomArgs();
+            return;
+        }
+
+        throw new IllegalStateException("No valid methods found for hash transformation");
     }
 
     @Override
@@ -408,6 +433,12 @@ public class VmHashTransformer implements HashTransformer {
             final InstanceClass klass = classes.get(method.getOwnerClass());
             final JavaMethod javaMethod = klass.getMethod(method.getName(), method.getDesc());
 
+            // SSVM may not mirror every declared method; never store a null key,
+            // or selectRandomMethod() can pick it and corrupt the hasher.
+            if (javaMethod == null) {
+                return;
+            }
+
             methodMatches.put(javaMethod, matches);
         });
 
@@ -439,13 +470,16 @@ public class VmHashTransformer implements HashTransformer {
         final Type[] types = Type.getArgumentTypes(method.getDesc());
         final Set<ParameterMatch> matches = new HashSet<>();
 
+        // index is the argument-array position, not the LVT slot: every consumer
+        // (initializeRandomArgs, both hash overloads) indexes by parameter order,
+        // so wide types (long/double) must advance by one, not by getSize().
         int index = 0;
         for (Type type : types) {
             if (type.getSort() == Type.INT) {
                 matches.add(new ParameterMatch(index, type));
             }
 
-            index += type.getSize();
+            index++;
         }
 
         return matches;

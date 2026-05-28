@@ -32,7 +32,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class InvokeDynamicMethodTransformer extends AbstractTransformer {
-    private static final String BOOTSTRAP_DESC = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;ILjava/lang/Class;Ljava/lang/invoke/MethodType;I)Ljava/lang/invoke/CallSite;";
+    private static final String BOOTSTRAP_DESC = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;ILjava/lang/String;Ljava/lang/invoke/MethodType;I)Ljava/lang/invoke/CallSite;";
     private static final String DECRYPT_DESC = "(Ljava/lang/String;I)Ljava/lang/String;";
     private static final String CALL_PREFIX = "skid$";
     private static final String LOOKUP = "java/lang/invoke/MethodHandles$Lookup";
@@ -108,12 +108,21 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                     }
 
                     final int key = ThreadLocalRandom.current().nextInt();
+                    /*
+                     * Resolve the owner to its FINAL (post-rename) internal name
+                     * before encrypting it. The write-time ClassRemapper would
+                     * remap a Class constant for us, but it cannot touch an
+                     * encrypted string, so we bake the renamed name here.
+                     */
+                    final String mappedOwner = skidfuscator.getClassRemapper().map(methodInsn.owner);
+                    final String ownerBinaryName =
+                            (mappedOwner != null ? mappedOwner : methodInsn.owner).replace('/', '.');
                     final InvokeDynamicInsnNode indy = new InvokeDynamicInsnNode(
                             encryptName(methodInsn.name, key, keys),
                             buildCallSiteDesc(methodInsn),
                             bootstrapHandle,
                             methodInsn.getOpcode(),
-                            ownerType(methodInsn.owner),
+                            encryptName(ownerBinaryName, key, keys),
                             Type.getMethodType(methodInsn.desc),
                             key
                     );
@@ -236,15 +245,17 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
             return methodInsn.desc;
         }
 
+        /*
+         * The receiver becomes the first call-site argument. We declare it as
+         * java/lang/Object instead of the real owner so the owner type never
+         * leaks into the indy descriptor; the bootstrap's MethodHandle.asType
+         * inserts the cast back to the resolved owner at link time.
+         */
         final Type[] args = Type.getArgumentTypes(methodInsn.desc);
         final Type[] indyArgs = new Type[args.length + 1];
-        indyArgs[0] = ownerType(methodInsn.owner);
+        indyArgs[0] = Type.getObjectType("java/lang/Object");
         System.arraycopy(args, 0, indyArgs, 1, args.length);
         return Type.getMethodDescriptor(Type.getReturnType(methodInsn.desc), indyArgs);
-    }
-
-    private Type ownerType(final String owner) {
-        return owner.startsWith("[") ? Type.getType(owner) : Type.getObjectType(owner);
     }
 
     private MethodNode createBootstrapMethod(final String owner, final String name, final String decryptName) {
@@ -268,6 +279,18 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
         insns.add(new VarInsnNode(Opcodes.ASTORE, 7));
 
+        // Decrypt the owner's binary name and resolve it through the caller's
+        // class loader, so the target class never appears as a Class constant.
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 6));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
+        insns.add(new InsnNode(Opcodes.ICONST_0));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LOOKUP, "lookupClass", "()Ljava/lang/Class;", false));
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Class", "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;", false));
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 9));
+
         insns.add(new VarInsnNode(Opcodes.ILOAD, 3));
         pushInt(insns, Opcodes.INVOKESTATIC);
         insns.add(new JumpInsnNode(Opcodes.IF_ICMPEQ, staticLabel));
@@ -284,7 +307,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
         insns.add(staticLabel);
         insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 9));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 7));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
         insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LOOKUP, "findStatic", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
@@ -293,7 +316,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
         insns.add(specialLabel);
         insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 9));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 7));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -304,7 +327,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
         insns.add(virtualLabel);
         insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
-        insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 9));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 7));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
         insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LOOKUP, "findVirtual", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
@@ -327,7 +350,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         insns.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/invoke/ConstantCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false));
         insns.add(new InsnNode(Opcodes.ARETURN));
 
-        method.maxLocals = 9;
+        method.maxLocals = 10;
         method.maxStack = 6;
         return method;
     }

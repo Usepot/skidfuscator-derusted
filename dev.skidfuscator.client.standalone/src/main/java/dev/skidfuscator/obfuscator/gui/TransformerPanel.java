@@ -213,7 +213,13 @@ public class TransformerPanel extends JPanel {
 
         addSection(host, "interprocedural", "Interprocedural",
                 "Threads obfuscation seeds through the call graph. Required by other passes.",
-                true, null, Collections.emptyList());
+                true, null,
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("threadStaticMethods").label("Thread static methods")
+                        .type(TransformerOptionType.BOOLEAN)
+                        .defaultValue(false)
+                        .description("Thread the flow seed through static-method call edges so a static method's seed depends on its call path instead of a per-class constant. Adds a hidden int parameter to threaded static methods. Off by default.")
+                        .build()));
 
         addSection(host, "interproceduralHarden", "Interprocedural Harden",
                 "Hardens the seed plumbing with extra randomisation per call-site.",

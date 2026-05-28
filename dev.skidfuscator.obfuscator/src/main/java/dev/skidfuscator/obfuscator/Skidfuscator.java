@@ -56,10 +56,12 @@ import dev.skidfuscator.obfuscator.transform.impl.hash.InstanceOfHashTransformer
 import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsIgnoreCaseHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.loop.LoopConditionTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.method.InvokeDynamicMethodTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.misc.AhegaoTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.number.NumberTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.pure.PureHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.sdk.SdkInjectorTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.signature.SignatureObfuscationTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.string.StringEncryptionType;
 import dev.skidfuscator.obfuscator.transform.impl.string.StringTransformerV2;
 import dev.skidfuscator.obfuscator.util.ConsoleColors;
@@ -371,6 +373,35 @@ public class Skidfuscator {
         }
         LOGGER.log("Finished dumping classes...");
         EventBus.end();
+
+        /*
+         * Late raw-ASM passes. These run AFTER mn.dump() (so the CFG dump does
+         * not clobber the rewritten instructions) and BEFORE _dump() (so the
+         * write-time ClassRemapper + COMPUTE_FRAMES picks up the injected
+         * bootstrap/decrypt methods and recomputes stack map frames). They are
+         * event-less transformers, so the EventBus never invokes them — they
+         * must be called explicitly here.
+         */
+        /*
+         * Signature obfuscation runs BEFORE method-call obfuscation: it rewrites
+         * MethodInsn callsites/descriptors, which must still be plain invocations
+         * (not yet converted to invokedynamic) for resolution to work.
+         */
+        final SignatureObfuscationTransformer signatureObfuscation =
+                new SignatureObfuscationTransformer(this);
+        if (signatureObfuscation.isEnabled()) {
+            LOGGER.post("Running late pass [Signature Obfuscation]...");
+            signatureObfuscation.apply();
+            LOGGER.log(signatureObfuscation.getResult());
+        }
+
+        final InvokeDynamicMethodTransformer methodCallObfuscation =
+                new InvokeDynamicMethodTransformer(this);
+        if (methodCallObfuscation.isEnabled()) {
+            LOGGER.post("Running late pass [Method Call Obfuscation]...");
+            methodCallObfuscation.apply();
+            LOGGER.log(methodCallObfuscation.getResult());
+        }
 
         _cleanup();
 
