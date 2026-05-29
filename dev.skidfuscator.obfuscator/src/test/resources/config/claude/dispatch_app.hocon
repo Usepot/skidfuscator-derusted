@@ -1,0 +1,13 @@
+# MethodDispatchTransformer, APP_ONLY scope: only calls resolving to app
+# methods are funnelled through the per-class dispatcher. String encryption is
+# off so this isolates the dispatch transform (interprocedural threading still
+# runs by default).
+methodDispatch {
+    enabled = true
+    scope = APP_ONLY
+    maxPerDispatcher = 64
+}
+
+stringEncryption {
+    enabled = false
+}

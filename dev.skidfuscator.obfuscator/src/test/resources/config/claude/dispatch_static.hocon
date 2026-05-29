@@ -1,0 +1,12 @@
+# MethodDispatchTransformer, STATIC_ONLY scope: only INVOKESTATIC call sites are
+# funnelled. maxPerDispatcher is deliberately small so distinct targets spill
+# across several dispatcher methods (exercises the bucketing path).
+methodDispatch {
+    enabled = true
+    scope = STATIC_ONLY
+    maxPerDispatcher = 4
+}
+
+stringEncryption {
+    enabled = false
+}

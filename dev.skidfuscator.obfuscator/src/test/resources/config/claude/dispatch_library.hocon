@@ -1,0 +1,12 @@
+# MethodDispatchTransformer, INCLUDE_LIBRARY scope: every eligible call site
+# (incl. JDK calls like String.equals / StringBuilder.append) is funnelled.
+# This is the most aggressive scope and stresses receiver casts + boxing.
+methodDispatch {
+    enabled = true
+    scope = INCLUDE_LIBRARY
+    maxPerDispatcher = 64
+}
+
+stringEncryption {
+    enabled = false
+}

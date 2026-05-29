@@ -1,0 +1,13 @@
+# MethodMergeTransformer with maxPerHost = 2: a same-signature bucket with more
+# than two members is split across several hosts, so this stresses the path
+# where different members of one original family end up in different hosts and
+# every call site must still resolve to the right one.
+methodMerge {
+    enabled = true
+    maxPerHost = 2
+    maxHostInsns = 20000
+}
+
+stringEncryption {
+    enabled = false
+}

@@ -1,0 +1,36 @@
+# Both new transformers enabled together, on top of the full flow + encryption
+# pipeline, to catch pass-ordering interactions (merge runs before signature
+# obfuscation; dispatch runs after it and before method-call obfuscation).
+methodMerge {
+    enabled = true
+    maxPerHost = 16
+    maxHostInsns = 20000
+}
+
+methodDispatch {
+    enabled = true
+    scope = INCLUDE_LIBRARY
+    maxPerDispatcher = 64
+}
+
+stringEncryption {
+    enabled = true
+    type = STANDARD
+}
+
+numberEncryption {
+    enabled = true
+}
+
+flowCondition {
+    enabled = true
+}
+
+flowRange {
+    enabled = true
+}
+
+flowException {
+    enabled = true
+    strength = AGGRESSIVE
+}

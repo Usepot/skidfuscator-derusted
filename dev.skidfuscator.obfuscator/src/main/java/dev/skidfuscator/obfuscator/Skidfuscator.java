@@ -57,6 +57,8 @@ import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsHashTransform
 import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsIgnoreCaseHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.loop.LoopConditionTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.method.InvokeDynamicMethodTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.method.MethodDispatchTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.method.MethodMergeTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.misc.AhegaoTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.number.NumberTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.pure.PureHashTransformer;
@@ -383,6 +385,20 @@ public class Skidfuscator {
          * must be called explicitly here.
          */
         /*
+         * Method merging runs BEFORE signature obfuscation: it aggregates several
+         * threaded methods into one seed-dispatched host and reroutes their plain
+         * MethodInsn callsites. The hosts are ACC_SYNTHETIC so signature
+         * obfuscation skips them, and the merged members are already removed.
+         */
+        final MethodMergeTransformer methodMerge =
+                new MethodMergeTransformer(this);
+        if (methodMerge.isEnabled()) {
+            LOGGER.post("Running late pass [Method Merge]...");
+            methodMerge.apply();
+            LOGGER.log(methodMerge.getResult());
+        }
+
+        /*
          * Signature obfuscation runs BEFORE method-call obfuscation: it rewrites
          * MethodInsn callsites/descriptors, which must still be plain invocations
          * (not yet converted to invokedynamic) for resolution to work.
@@ -393,6 +409,22 @@ public class Skidfuscator {
             LOGGER.post("Running late pass [Signature Obfuscation]...");
             signatureObfuscation.apply();
             LOGGER.log(signatureObfuscation.getResult());
+        }
+
+        /*
+         * Method dispatch runs AFTER signature obfuscation (so callsite
+         * descriptors are final) and BEFORE method-call obfuscation: it funnels
+         * eligible MethodInsn callsites through a per-class (byte[], Object[])
+         * dispatcher that lookupswitches on a hashed signature key. The emitted
+         * dispatcher calls are plain INVOKESTATIC, so method-call obfuscation can
+         * still convert them to invokedynamic afterwards.
+         */
+        final MethodDispatchTransformer methodDispatch =
+                new MethodDispatchTransformer(this);
+        if (methodDispatch.isEnabled()) {
+            LOGGER.post("Running late pass [Method Dispatch]...");
+            methodDispatch.apply();
+            LOGGER.log(methodDispatch.getResult());
         }
 
         final InvokeDynamicMethodTransformer methodCallObfuscation =

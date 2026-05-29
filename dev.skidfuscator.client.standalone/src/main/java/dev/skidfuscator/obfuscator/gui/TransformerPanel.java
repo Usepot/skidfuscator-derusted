@@ -386,6 +386,41 @@ public class TransformerPanel extends JPanel {
                 "Rewrites internally-called method signatures to byte[] plus Object[] carrier arguments. Off by default.",
                 false, "Risky", Collections.emptyList());
 
+        addSection(host, "methodDispatch", "Method Dispatch",
+                "Funnels eligible method calls through a per-class (byte[], Object[]) dispatcher that lookupswitches on a hashed signature key, hiding the real target behind the switch. Off by default.",
+                false, "Risky",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("scope").label("Scope")
+                                .type(TransformerOptionType.ENUM)
+                                .enumValues(Arrays.asList("APP_ONLY", "INCLUDE_LIBRARY", "STATIC_ONLY"))
+                                .defaultValue("APP_ONLY")
+                                .description("Which call sites to funnel: APP_ONLY = calls resolving to application classes; INCLUDE_LIBRARY = also library targets; STATIC_ONLY = only invokestatic calls.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("maxPerDispatcher").label("Max targets per dispatcher")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(64)
+                                .description("Maximum distinct call targets funnelled into a single dispatcher method before a new one is created.")
+                                .build()));
+
+        addSection(host, "methodMerge", "Method Merge",
+                "Aggregates compatible threaded methods into synthetic seed-dispatched host methods. Off by default.",
+                false, "Risky",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("maxPerHost").label("Max methods per host")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(16)
+                                .description("Maximum number of compatible methods merged into a single synthetic host method.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("maxHostInsns").label("Max host instructions")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(20000)
+                                .description("Approximate instruction-budget cap for a merged host before starting a new host.")
+                                .build()));
+
         addSection(host, "constructorObfuscation", "Constructor Obfuscation",
                 "Allows eligible transformers to process constructor bodies after super()/this() initialization. Off by default.",
                 false, "Risky", Collections.emptyList());
@@ -717,7 +752,8 @@ public class TransformerPanel extends JPanel {
                 case INTEGER: {
                     Object def = option.getDefaultValue();
                     double v = (def instanceof Number) ? ((Number) def).doubleValue() : 0d;
-                    return new JSpinner(new SpinnerNumberModel(v, 0, 100, 1));
+                    double max = Math.max(100d, v);
+                    return new JSpinner(new SpinnerNumberModel(v, 0d, max, 1d));
                 }
                 case BOOLEAN: {
                     JCheckBox cb = new JCheckBox();

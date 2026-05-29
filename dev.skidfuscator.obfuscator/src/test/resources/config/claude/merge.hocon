@@ -1,0 +1,13 @@
+# MethodMergeTransformer: folds seed-threaded same-signature methods into one
+# seed-dispatched host. Interprocedural threading is left at its default (on),
+# which is what supplies the trailing seed parameter / injected method predicate
+# that the merge keys on. String encryption is off to isolate the merge.
+methodMerge {
+    enabled = true
+    maxPerHost = 16
+    maxHostInsns = 20000
+}
+
+stringEncryption {
+    enabled = false
+}
