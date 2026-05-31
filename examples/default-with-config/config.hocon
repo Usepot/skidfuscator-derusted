@@ -26,6 +26,12 @@ flowCondition {
 flowException {
   enabled: true
   strength: AGGRESSIVE
+  decoyCalls {
+    enabled: false
+    scope: APPLICATION_AND_EXEMPT
+    includeLibraries: false
+    maxArgs: 5
+  }
   exempt: []
 }
 

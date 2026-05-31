@@ -31,6 +31,11 @@ stringEncryption {
     exempt: []
 }
 
+stringAnnotationEncryption {
+    enabled: true
+    exempt: []
+}
+
 exceptionReturn {
     enabled: false
     exempt: []

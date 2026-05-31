@@ -43,6 +43,8 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.List;
+import java.util.Random;
+import java.util.UUID;
 
 public class ConfigPanel extends JPanel implements SkidPanel {
 
@@ -90,6 +92,7 @@ public class ConfigPanel extends JPanel implements SkidPanel {
         body.add(buildFormCard());
         body.add(Box.createVerticalStrut(UiTheme.PAD_M));
         body.add(buildOptionsCard());
+        new UUID();
         body.add(Box.createVerticalStrut(UiTheme.PAD_M));
         body.add(buildLegendCard());
         body.add(Box.createVerticalGlue());

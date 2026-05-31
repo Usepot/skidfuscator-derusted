@@ -36,6 +36,7 @@ import dev.skidfuscator.obfuscator.skidasm.stmt.SkidCopyVarStmt;
 import dev.skidfuscator.obfuscator.skidasm.stmt.SkidSwitchStmt;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 import dev.skidfuscator.obfuscator.transform.Transformer;
+import dev.skidfuscator.obfuscator.transform.impl.flow.FlowFactoryMakerTransformer;
 import dev.skidfuscator.obfuscator.util.OpcodeUtil;
 import dev.skidfuscator.obfuscator.util.RandomUtil;
 import dev.skidfuscator.obfuscator.util.cfg.Blocks;
@@ -179,7 +180,12 @@ import java.util.stream.Collectors;
                 final int randomSeed = skidClassNode.getRandomInt();
                 seed = randomSeed;
 
-                expr = vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed);
+                expr = FlowFactoryMakerTransformer.materializeSeedGetter(
+                        skidMethodNode.getSkidfuscator(),
+                        skidClassNode,
+                        randomSeed,
+                        vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed)
+                );
             } else {
                 seed = classPredicate.get();
                 expr = classPredicate.getGetter();

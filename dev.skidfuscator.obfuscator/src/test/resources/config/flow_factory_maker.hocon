@@ -1,0 +1,141 @@
+exclude: []
+
+interproceduralHarden {
+    enabled: true
+}
+
+interprocedural {
+    enabled: true
+    threadStaticMethods: true
+}
+
+flowFactoryMaker {
+    enabled: true
+    exempt: []
+}
+
+numberEncryption {
+    enabled: false
+    exempt: []
+}
+
+intAnnotationEncryption {
+    enabled: false
+    exempt: []
+}
+
+stringAnnotationEncryption {
+    enabled: false
+    exempt: []
+}
+
+stringEncryption {
+    type: STANDARD
+    enabled: false
+    exempt: []
+}
+
+flowCondition {
+    enabled: false
+    exempt: []
+}
+
+flowException {
+    enabled: false
+    strength: AGGRESSIVE
+    exempt: []
+}
+
+flowRange {
+    enabled: false
+    exempt: []
+}
+
+flowSwitch {
+    enabled: false
+    exempt: []
+}
+
+pureEncryption {
+    enabled: false
+    exempt: []
+}
+
+sdk {
+    enabled: false
+    exempt: []
+}
+
+stringEqualsHash {
+    enabled: false
+    exempt: []
+}
+
+stringEqIgCaseHash {
+    enabled: false
+    exempt: []
+}
+
+typeCheck {
+    enabled: false
+    exempt: []
+}
+
+ahegao {
+    enabled: false
+    exempt: []
+}
+
+methodMerge {
+    enabled: false
+    exempt: []
+}
+
+signatureObfuscation {
+    enabled: false
+    exempt: []
+}
+
+methodDispatch {
+    enabled: false
+    exempt: []
+}
+
+outliner {
+    enabled: false
+    exempt: []
+}
+
+methodCallObfuscation {
+    enabled: false
+    exempt: []
+}
+
+driver {
+    enabled: false
+}
+
+native {
+    enabled: false
+    exempt: []
+}
+
+reference {
+    enabled: false
+}
+
+fileCrasher {
+    enabled: false
+}
+
+classRenamer {
+    enabled: false
+}
+
+methodRenamer {
+    enabled: false
+}
+
+fieldRenamer {
+    enabled: false
+}

@@ -23,7 +23,9 @@ public class SkidfuscatorConfig {
         transformerConfig.put("enabled", enabled);
         
         if (options != null && !options.isEmpty()) {
-            transformerConfig.putAll(options);
+            for (Map.Entry<String, Object> entry : options.entrySet()) {
+                putOption(transformerConfig, entry.getKey(), entry.getValue());
+            }
         }
         
         if (exemptions != null && !exemptions.isEmpty()) {
@@ -31,6 +33,24 @@ public class SkidfuscatorConfig {
         }
         
         configMap.put(name, ConfigValueFactory.fromMap(transformerConfig));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putOption(Map<String, Object> target, String key, Object value) {
+        String[] parts = key.split("\\.");
+        Map<String, Object> current = target;
+
+        for (int i = 0; i < parts.length - 1; i++) {
+            Object next = current.get(parts[i]);
+            if (!(next instanceof Map)) {
+                next = new HashMap<String, Object>();
+                current.put(parts[i], next);
+            }
+
+            current = (Map<String, Object>) next;
+        }
+
+        current.put(parts[parts.length - 1], value);
     }
     
     /**

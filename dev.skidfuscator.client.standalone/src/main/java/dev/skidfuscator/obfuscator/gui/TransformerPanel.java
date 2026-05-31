@@ -178,13 +178,39 @@ public class TransformerPanel extends JPanel {
         addSection(host, "flowException", "Flow Exception",
                 "Wraps control flow in fake exception handlers to confuse decompilers.",
                 true, null,
-                Collections.singletonList(TransformerOptionDefinition.builder()
-                        .key("strength").label("Strength")
-                        .type(TransformerOptionType.ENUM)
-                        .enumValues(Arrays.asList("WEAK", "GOOD", "AGGRESSIVE"))
-                        .defaultValue("AGGRESSIVE")
-                        .description("Flow exception transformation strength")
-                        .build()));
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("strength").label("Strength")
+                                .type(TransformerOptionType.ENUM)
+                                .enumValues(Arrays.asList("WEAK", "GOOD", "AGGRESSIVE"))
+                                .defaultValue("AGGRESSIVE")
+                                .description("Flow exception transformation strength")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("decoyCalls.enabled").label("Decoy calls")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Replace fake failure throws with decoy calls to valid methods")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("decoyCalls.scope").label("Decoy scope")
+                                .type(TransformerOptionType.ENUM)
+                                .enumValues(Arrays.asList("APPLICATION", "APPLICATION_AND_EXEMPT"))
+                                .defaultValue("APPLICATION_AND_EXEMPT")
+                                .description("Application method pool used for fake-branch decoy calls")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("decoyCalls.includeLibraries").label("Library decoys")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Allow public library static methods as decoy call targets")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("decoyCalls.maxArgs").label("Max decoy args")
+                                .type(TransformerOptionType.INTEGER)
+                                .defaultValue(5)
+                                .description("Maximum method argument count for decoy call targets")
+                                .build()));
 
         addSection(host, "flowRange", "Flow Range",
                 "Splits loops and iterative structures to break decompiler heuristics.",
@@ -217,8 +243,8 @@ public class TransformerPanel extends JPanel {
                 Collections.singletonList(TransformerOptionDefinition.builder()
                         .key("threadStaticMethods").label("Thread static methods")
                         .type(TransformerOptionType.BOOLEAN)
-                        .defaultValue(false)
-                        .description("Thread the flow seed through static-method call edges so a static method's seed depends on its call path instead of a per-class constant. Adds a hidden int parameter to threaded static methods. Off by default.")
+                        .defaultValue(true)
+                        .description("Thread the flow seed through static-method call edges so a static method's seed depends on its call path instead of a per-class constant. Adds a hidden int parameter to threaded static methods. On by default.")
                         .build()));
 
         addSection(host, "interproceduralHarden", "Interprocedural Harden",
@@ -402,6 +428,12 @@ public class TransformerPanel extends JPanel {
                                 .type(TransformerOptionType.INTEGER)
                                 .defaultValue(64)
                                 .description("Maximum distinct call targets funnelled into a single dispatcher method before a new one is created.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("decoyDefaultCalls").label("Default decoy calls")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Emit calls to real dispatcher targets in the unreachable default path before the safety throw.")
                                 .build()));
 
         addSection(host, "methodMerge", "Method Merge",
@@ -569,12 +601,7 @@ public class TransformerPanel extends JPanel {
                     if (tc.hasPath("enabled")) {
                         card.setToggled(tc.getBoolean("enabled"));
                     }
-                    for (Map.Entry<String, ConfigValue> entry : tc.entrySet()) {
-                        if ("enabled".equals(entry.getKey())
-                                || "exempt".equals(entry.getKey())
-                                || "exclude".equals(entry.getKey())) continue;
-                        card.setOption(entry.getKey(), entry.getValue().unwrapped());
-                    }
+                    applyConfigOptions(card, tc, "");
                 }
             }
             if (userInitiated) {
@@ -587,6 +614,28 @@ public class TransformerPanel extends JPanel {
             }
         } finally {
             loading = false;
+        }
+    }
+
+    private void applyConfigOptions(TransformerCard card, Config config, String prefix) {
+        for (Map.Entry<String, ConfigValue> entry : config.entrySet()) {
+            if (prefix.isEmpty()
+                    && ("enabled".equals(entry.getKey())
+                    || "exempt".equals(entry.getKey())
+                    || "exclude".equals(entry.getKey()))) {
+                continue;
+            }
+
+            final String key = prefix.isEmpty()
+                    ? entry.getKey()
+                    : prefix + "." + entry.getKey();
+            final Object value = entry.getValue().unwrapped();
+
+            if (value instanceof Map) {
+                applyConfigOptions(card, config.getConfig(entry.getKey()), key);
+            } else {
+                card.setOption(key, value);
+            }
         }
     }
 

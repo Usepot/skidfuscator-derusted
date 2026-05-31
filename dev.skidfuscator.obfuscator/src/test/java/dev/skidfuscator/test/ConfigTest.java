@@ -4,6 +4,8 @@ import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.SkidfuscatorSession;
 import dev.skidfuscator.obfuscator.transform.impl.SwitchTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.flow.driver.DriverTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.flow.exception.BasicExceptionConfig;
+import dev.skidfuscator.obfuscator.transform.impl.flow.exception.BasicExceptionDecoyScope;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -67,6 +69,41 @@ public class ConfigTest {
                 switchTransformer.isEnabled()
         );
 
+    }
+
+    @Test
+    public void testFlowExceptionDecoyCallConfig() {
+        final TestConfigSkidfuscator defaultSkidfuscator = new TestConfigSkidfuscator(
+                SkidfuscatorSession.builder()
+                        .config(new File(this.getClass().getResource("/config/config.hocon").getFile()))
+                        .build()
+        );
+        defaultSkidfuscator._importConfig();
+
+        final BasicExceptionConfig defaultConfig = new BasicExceptionConfig(
+                defaultSkidfuscator.getTsConfig(),
+                "flowException"
+        );
+        assertFalse(defaultConfig.isDecoyCallsEnabled());
+        assertEquals(BasicExceptionDecoyScope.APPLICATION_AND_EXEMPT, defaultConfig.getDecoyCallScope());
+        assertFalse(defaultConfig.isDecoyCallLibrariesEnabled());
+        assertEquals(5, defaultConfig.getDecoyCallMaxArgs());
+
+        final TestConfigSkidfuscator decoySkidfuscator = new TestConfigSkidfuscator(
+                SkidfuscatorSession.builder()
+                        .config(new File(this.getClass().getResource("/config/decoy_calls.hocon").getFile()))
+                        .build()
+        );
+        decoySkidfuscator._importConfig();
+
+        final BasicExceptionConfig decoyConfig = new BasicExceptionConfig(
+                decoySkidfuscator.getTsConfig(),
+                "flowException"
+        );
+        assertTrue(decoyConfig.isDecoyCallsEnabled());
+        assertEquals(BasicExceptionDecoyScope.APPLICATION_AND_EXEMPT, decoyConfig.getDecoyCallScope());
+        assertFalse(decoyConfig.isDecoyCallLibrariesEnabled());
+        assertEquals(5, decoyConfig.getDecoyCallMaxArgs());
     }
 
     static class TestConfigSkidfuscator extends Skidfuscator {

@@ -44,6 +44,8 @@ import java.util.Set;
 public class SignatureObfuscationTransformer extends AbstractTransformer {
     private static final String BYTE_ARRAY_DESC = "[B";
     private static final String OBJECT_ARRAY_DESC = "[Ljava/lang/Object;";
+    private static final int MAX_REWRITE_METHOD_INSNS = 3000;
+    private static final int MAX_REWRITE_SITES_PER_METHOD = 32;
 
     /** Every class in the jar (incl. exempt), used to detect in-jar overrides. */
     private Map<String, org.objectweb.asm.tree.ClassNode> universe;
@@ -81,6 +83,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         }
 
         removeDescriptorCollisions(classes, candidates);
+        removeSizeRiskyCallers(classes, candidates);
 
         if (candidates.isEmpty()) {
             return;
@@ -316,6 +319,10 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             return false;
         }
 
+        if (isLargeRewriteMethod(method)) {
+            return false;
+        }
+
         if (Type.getArgumentTypes(method.desc).length == 0) {
             return false;
         }
@@ -450,6 +457,57 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             candidates.remove(key);
             fail();
         }
+    }
+
+    private void removeSizeRiskyCallers(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
+                                        final Map<MethodKey, String> candidates) {
+        final Set<MethodKey> rejected = new HashSet<>();
+
+        for (org.objectweb.asm.tree.ClassNode classNode : classes.values()) {
+            for (MethodNode method : classNode.methods) {
+                int sites = 0;
+                final Set<MethodKey> calledCandidates = new HashSet<>();
+
+                for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (!(insn instanceof MethodInsnNode)) {
+                        continue;
+                    }
+
+                    final MethodInsnNode methodInsn = (MethodInsnNode) insn;
+                    if (!classes.containsKey(methodInsn.owner)) {
+                        continue;
+                    }
+
+                    final MethodKey resolved = resolveMethod(classes, methodInsn.owner, methodInsn.name, methodInsn.desc);
+                    if (resolved == null || !candidates.containsKey(resolved)) {
+                        continue;
+                    }
+
+                    sites++;
+                    calledCandidates.add(resolved);
+                }
+
+                if (sites > 0 && isRewriteSizeRisk(method, sites)) {
+                    rejected.addAll(calledCandidates);
+                }
+            }
+        }
+
+        for (MethodKey key : rejected) {
+            if (candidates.remove(key) != null) {
+                skip();
+            }
+        }
+    }
+
+    private boolean isRewriteSizeRisk(final MethodNode method, final int siteCount) {
+        return isLargeRewriteMethod(method)
+                || siteCount > MAX_REWRITE_SITES_PER_METHOD;
+    }
+
+    private boolean isLargeRewriteMethod(final MethodNode method) {
+        return method.instructions != null
+                && method.instructions.size() >= MAX_REWRITE_METHOD_INSNS;
     }
 
     private void rewriteCallsites(final Map<String, org.objectweb.asm.tree.ClassNode> classes,

@@ -62,7 +62,7 @@ public class StringTransformerV2 extends AbstractTransformer {
         EncryptionGeneratorV3 generator = keyMap.get(parentNode);
 
         if (generator == null) {
-            keyMap.put(parentNode, (generator = new Base64PaddedV3EncryptionGenerator(createRandomPad())));
+            keyMap.put(parentNode, (generator = createGenerator(parentNode)));
         }
 
         if (!INJECTED.contains(parentNode.getName())) {
@@ -102,7 +102,11 @@ public class StringTransformerV2 extends AbstractTransformer {
         this.success();
     }
 
-    private byte[] createRandomPad() {
+    protected EncryptionGeneratorV3 createGenerator(final SkidClassNode parentNode) {
+        return new Base64PaddedV3EncryptionGenerator(createRandomPad());
+    }
+
+    protected byte[] createRandomPad() {
         final int size = RandomUtil.nextInt(96) + 32;
         final byte[] pad = new byte[size];
 

@@ -1,0 +1,75 @@
+exclude: []
+
+driver: {
+    enabled: false
+}
+
+sdk {
+    enabled: false
+}
+
+fileCrasher: {
+    enabled: false
+}
+
+numberEncryption {
+    enabled: false
+    exempt: []
+}
+
+flowRange {
+    enabled: false
+    exempt: []
+}
+
+flowSwitch {
+    enabled: false
+    exempt: []
+}
+
+stringEncryption {
+    type: STANDARD
+    enabled: false
+    exempt: []
+}
+
+exceptionReturn {
+    enabled: false
+    exempt: []
+}
+
+flowException {
+    enabled: true
+    strength: AGGRESSIVE
+    decoyCalls {
+        enabled: true
+        scope: APPLICATION_AND_EXEMPT
+        includeLibraries: false
+        maxArgs: 5
+    }
+    exempt: []
+}
+
+flowCondition {
+    enabled: false
+}
+
+ahegao {
+    enabled: false
+}
+
+pureEncryption {
+    enabled: false
+}
+
+stringEqualsHash {
+    enabled: false
+}
+
+stringEqIgCaseHash {
+    enabled: false
+}
+
+typeCheck {
+    enabled: false
+}

@@ -53,6 +53,9 @@ public class MethodDispatchTransformer extends AbstractTransformer {
 
     private static final int LOWBIAS_C1 = 0x7feb352d;
     private static final int LOWBIAS_C2 = 0x846ca68b;
+    private static final int MAX_REWRITE_METHOD_INSNS = 3000;
+    private static final int MAX_REWRITE_SITES_PER_METHOD = 32;
+    private static final int MAX_DEFAULT_DECOY_CALLS = 3;
 
     /** App, non-exempt, non-native-sensitive classes — the only dispatcher hosts. */
     private Map<String, org.objectweb.asm.tree.ClassNode> appClasses;
@@ -81,6 +84,7 @@ public class MethodDispatchTransformer extends AbstractTransformer {
 
         final Scope scope = parseScope(getConfig().getString("scope", "APP_ONLY"));
         final int maxPerDispatcher = Math.max(1, getConfig().getInt("maxPerDispatcher", 64));
+        final boolean decoyDefaultCalls = getConfig().getBoolean("decoyDefaultCalls", false);
 
         for (JarClassData classData : skidfuscator.getJarContents().getClassContents()) {
             final ClassNode wrapper = classData.getClassNode();
@@ -94,7 +98,7 @@ public class MethodDispatchTransformer extends AbstractTransformer {
             if (!appClasses.containsKey(wrapper.node.name)) {
                 continue;
             }
-            processClass(wrapper, wrapper.node, scope, maxPerDispatcher);
+            processClass(wrapper, wrapper.node, scope, maxPerDispatcher, decoyDefaultCalls);
         }
     }
 
@@ -116,7 +120,8 @@ public class MethodDispatchTransformer extends AbstractTransformer {
     private void processClass(final ClassNode wrapper,
                               final org.objectweb.asm.tree.ClassNode classNode,
                               final Scope scope,
-                              final int maxPerDispatcher) {
+                              final int maxPerDispatcher,
+                              final boolean decoyDefaultCalls) {
         final Map<String, Target> distinct = new LinkedHashMap<>();
         final List<Site> sites = new ArrayList<>();
 
@@ -137,6 +142,8 @@ public class MethodDispatchTransformer extends AbstractTransformer {
                 continue;
             }
 
+            final Map<String, Target> methodDistinct = new LinkedHashMap<>();
+            final List<Site> methodSites = new ArrayList<>();
             for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                 if (!(insn instanceof MethodInsnNode)) {
                     continue;
@@ -148,18 +155,37 @@ public class MethodDispatchTransformer extends AbstractTransformer {
                     continue;
                 }
                 final String dedupKey = dedupKey(methodInsn);
-                distinct.putIfAbsent(dedupKey, target);
-                sites.add(new Site(method, methodInsn, dedupKey));
+                methodDistinct.putIfAbsent(dedupKey, target);
+                methodSites.add(new Site(method, methodInsn, dedupKey));
             }
+
+            if (methodSites.isEmpty()) {
+                continue;
+            }
+
+            if (isRewriteSizeRisk(method, methodSites.size())) {
+                for (int i = 0; i < methodSites.size(); i++) {
+                    skip();
+                }
+                continue;
+            }
+
+            distinct.putAll(methodDistinct);
+            sites.addAll(methodSites);
         }
 
         if (distinct.isEmpty()) {
             return;
         }
 
-        final List<MethodNode> dispatchers = assignDispatchers(classNode, distinct, maxPerDispatcher);
+        final List<MethodNode> dispatchers = assignDispatchers(classNode, distinct, maxPerDispatcher, decoyDefaultCalls);
         rewriteSites(classNode, distinct, sites);
         classNode.methods.addAll(dispatchers);
+    }
+
+    private boolean isRewriteSizeRisk(final MethodNode method, final int siteCount) {
+        return method.instructions.size() >= MAX_REWRITE_METHOD_INSNS
+                || siteCount > MAX_REWRITE_SITES_PER_METHOD;
     }
 
     /**
@@ -169,7 +195,8 @@ public class MethodDispatchTransformer extends AbstractTransformer {
      */
     private List<MethodNode> assignDispatchers(final org.objectweb.asm.tree.ClassNode classNode,
                                                final Map<String, Target> distinct,
-                                               final int maxPerDispatcher) {
+                                               final int maxPerDispatcher,
+                                               final boolean decoyDefaultCalls) {
         final List<Target> all = new ArrayList<>(distinct.values());
         final List<MethodNode> dispatchers = new ArrayList<>();
 
@@ -187,7 +214,7 @@ public class MethodDispatchTransformer extends AbstractTransformer {
                 target.dispatcherName = name;
             }
 
-            dispatchers.add(buildDispatcher(name, new ArrayList<>(bucket)));
+            dispatchers.add(buildDispatcher(name, new ArrayList<>(bucket), decoyDefaultCalls));
         }
         return dispatchers;
     }
@@ -342,7 +369,8 @@ public class MethodDispatchTransformer extends AbstractTransformer {
     /* Dispatcher construction                                             */
     /* ------------------------------------------------------------------ */
 
-    private MethodNode buildDispatcher(final String name, final List<Target> targets) {
+    private MethodNode buildDispatcher(final String name, final List<Target> targets,
+                                       final boolean decoyDefaultCalls) {
         final MethodNode method = new MethodNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name, DISPATCH_DESC, null, null);
@@ -405,6 +433,9 @@ public class MethodDispatchTransformer extends AbstractTransformer {
         }
 
         out.add(defaultLabel);
+        if (decoyDefaultCalls) {
+            emitDefaultDecoyCalls(out, targets);
+        }
         out.add(new TypeInsnNode(Opcodes.NEW, "java/lang/IllegalStateException"));
         out.add(new InsnNode(Opcodes.DUP));
         out.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/IllegalStateException", "<init>", "()V", false));
@@ -413,6 +444,66 @@ public class MethodDispatchTransformer extends AbstractTransformer {
         method.maxLocals = 2;
         method.maxStack = maxStack;
         return method;
+    }
+
+    private void emitDefaultDecoyCalls(final InsnList out, final List<Target> targets) {
+        int emitted = 0;
+        for (Target target : targets) {
+            if (emitted >= MAX_DEFAULT_DECOY_CALLS) {
+                return;
+            }
+
+            if (!target.isStatic) {
+                out.add(new InsnNode(Opcodes.ACONST_NULL));
+                out.add(new TypeInsnNode(Opcodes.CHECKCAST, target.castType));
+            }
+
+            for (Type arg : Type.getArgumentTypes(target.desc)) {
+                emitDefaultValue(out, arg);
+            }
+
+            out.add(new MethodInsnNode(target.opcode, target.owner, target.name, target.desc, target.itf));
+            emitDiscardReturn(out, Type.getReturnType(target.desc));
+            emitted++;
+        }
+    }
+
+    private void emitDefaultValue(final InsnList out, final Type type) {
+        switch (type.getSort()) {
+            case Type.BOOLEAN:
+            case Type.BYTE:
+            case Type.CHAR:
+            case Type.SHORT:
+            case Type.INT:
+                out.add(new InsnNode(Opcodes.ICONST_0));
+                break;
+            case Type.FLOAT:
+                out.add(new InsnNode(Opcodes.FCONST_0));
+                break;
+            case Type.LONG:
+                out.add(new InsnNode(Opcodes.LCONST_0));
+                break;
+            case Type.DOUBLE:
+                out.add(new InsnNode(Opcodes.DCONST_0));
+                break;
+            case Type.ARRAY:
+            case Type.OBJECT:
+                out.add(new InsnNode(Opcodes.ACONST_NULL));
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported argument type: " + type);
+        }
+    }
+
+    private void emitDiscardReturn(final InsnList out, final Type ret) {
+        if (ret.getSort() == Type.VOID) {
+            return;
+        }
+        if (ret.getSort() == Type.LONG || ret.getSort() == Type.DOUBLE) {
+            out.add(new InsnNode(Opcodes.POP2));
+        } else {
+            out.add(new InsnNode(Opcodes.POP));
+        }
     }
 
     private void emitLowbias32(final InsnList out) {

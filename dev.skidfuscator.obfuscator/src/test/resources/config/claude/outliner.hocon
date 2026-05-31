@@ -1,0 +1,75 @@
+# Isolated Outliner test config.
+outliner {
+    enabled = true
+    minInstructions = 3
+    maxInstructions = 10
+    maxPerMethod = 1
+    maxInputs = 8
+    maxOutputs = 6
+    maxStackValues = 3
+    exempt = []
+}
+
+stringEncryption {
+    enabled = false
+}
+
+numberEncryption {
+    enabled = false
+}
+
+flowRange {
+    enabled = false
+}
+
+flowSwitch {
+    enabled = false
+}
+
+flowException {
+    enabled = false
+}
+
+flowCondition {
+    enabled = false
+}
+
+driver {
+    enabled = false
+}
+
+fileCrasher {
+    enabled = false
+}
+
+exceptionReturn {
+    enabled = false
+}
+
+classRenamer {
+    enabled = false
+}
+
+methodRenamer {
+    enabled = false
+}
+
+fieldRenamer {
+    enabled = false
+}
+
+methodMerge {
+    enabled = false
+}
+
+signatureObfuscation {
+    enabled = false
+}
+
+methodDispatch {
+    enabled = false
+}
+
+methodCallObfuscation {
+    enabled = false
+}

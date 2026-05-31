@@ -43,6 +43,11 @@ public class Blocks {
         return exception0(cfg, notice);
     }
     private SkidBlock exception0(final ControlFlowGraph cfg, final Object notice) {
+        final java.util.Optional<SkidBlock> decoy = BasicExceptionDecoyCallFactory.create(cfg);
+        if (decoy.isPresent()) {
+            return decoy.get();
+        }
+
         // Temporary fix for this
         final SkidBlock fuckup = new SkidBlock(cfg);
         final Stmt exception_stmt = stmtException0(notice);

@@ -18,6 +18,7 @@ import dev.skidfuscator.obfuscator.skidasm.expr.SkidConstantExpr;
 import dev.skidfuscator.obfuscator.skidasm.expr.SkidIntegerParseStaticInvocationExpr;
 import dev.skidfuscator.obfuscator.skidasm.stmt.SkidCopyVarStmt;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.flow.FlowFactoryMakerTransformer;
 import dev.skidfuscator.obfuscator.util.OpcodeUtil;
 import dev.skidfuscator.obfuscator.util.RandomUtil;
 import dev.skidfuscator.obfuscator.util.misc.Parameter;
@@ -68,6 +69,33 @@ public class InterproceduralTransformer extends AbstractTransformer {
 
         final boolean entryPoint = skidGroup.isEntryPoint();
         int stackHeight = -1;
+
+        /*
+         * Do not thread constructors, compiler-synthetic helper methods, or
+         * methods declared in/called from anonymous or inner classes.
+         * Updating constructor descriptors is fragile because allocation sites
+         * are split across NEW/DUP/.../INVOKESPECIAL and some constructor calls
+         * or classes can be skipped by later bytecode-level passes. Synthetic
+         * accessors are similarly fragile because anonymous/nested classes may
+         * keep direct references to their compiler-generated descriptors. Inner
+         * and anonymous classes also often extend or implement library classes,
+         * so descriptor threading can break override/callback signatures.
+         * A caller/callee descriptor mismatch produces runtime NoSuchMethodError,
+         * e.g. Foo$1.<init>(Foo, int) or Foo.access$008(Foo).
+         */
+        if (skidGroup.isInit()
+                || skidGroup.isClinit()
+                || skidGroup.isSynthetic()
+                || hasFragileMethodOwner(skidGroup)
+                || hasFragileInvokerOwner(skidGroup)) {
+            stackHeight = OpcodeUtil.getArgumentsSizes(skidGroup.getDesc());
+
+            if (skidGroup.isStatical())
+                stackHeight -= 1;
+
+            skidGroup.setStackHeight(stackHeight);
+            return;
+        }
 
         /*
          * If the skid group is an entry point (it has no direct invocation)
@@ -250,6 +278,27 @@ public class InterproceduralTransformer extends AbstractTransformer {
         skidGroup.setInjectedMethodPredicate(true);
     }
 
+    private boolean hasFragileMethodOwner(final SkidGroup skidGroup) {
+        return skidGroup.getMethodNodeList().stream()
+                .filter(methodNode -> methodNode != null && methodNode.owner != null && methodNode.owner.node != null)
+                .anyMatch(methodNode -> isFragileClass(methodNode.owner.node));
+    }
+
+    private boolean hasFragileInvokerOwner(final SkidGroup skidGroup) {
+        return skidGroup.getInvokers().stream()
+                .map(SkidInvocation::getOwner)
+                .filter(methodNode -> methodNode != null && methodNode.owner != null && methodNode.owner.node != null)
+                .anyMatch(methodNode -> isFragileClass(methodNode.owner.node));
+    }
+
+    private boolean isFragileClass(final org.objectweb.asm.tree.ClassNode classNode) {
+        return classNode.outerClass != null
+                || classNode.nestHostClass != null
+                || ((classNode.access & Opcodes.ACC_SYNTHETIC) != 0)
+                || (classNode.innerClasses != null
+                && classNode.innerClasses.stream().anyMatch(innerClass -> classNode.name.equals(innerClass.name)));
+    }
+
     private boolean threadStaticMethods() {
         return getConfig().getBoolean("threadStaticMethods", true);
     }
@@ -284,7 +333,12 @@ public class InterproceduralTransformer extends AbstractTransformer {
                 final int randomSeed = skidClassNode.getRandomInt();
                 seed = randomSeed;
 
-                expr = vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed);
+                expr = FlowFactoryMakerTransformer.materializeSeedGetter(
+                        skidMethodNode.getSkidfuscator(),
+                        skidClassNode,
+                        randomSeed,
+                        vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed)
+                );
             } else {
                 seed = classPredicate.get();
                 expr = classPredicate.getGetter();

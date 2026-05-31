@@ -47,6 +47,8 @@ import dev.skidfuscator.obfuscator.skidasm.SkidGroup;
 import dev.skidfuscator.obfuscator.skidasm.SkidMethodNode;
 import dev.skidfuscator.obfuscator.transform.Transformer;
 import dev.skidfuscator.obfuscator.transform.impl.SwitchTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.annotation.StringAnnotationEncryptionTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.annotation.IntAnnotationEncryptionTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.flow.*;
 import dev.skidfuscator.obfuscator.transform.impl.flow.condition.BasicConditionTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.flow.exception.BasicExceptionTransformer;
@@ -59,6 +61,7 @@ import dev.skidfuscator.obfuscator.transform.impl.loop.LoopConditionTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.method.InvokeDynamicMethodTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.method.MethodDispatchTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.method.MethodMergeTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.method.OutlinerTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.misc.AhegaoTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.number.NumberTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.pure.PureHashTransformer;
@@ -66,6 +69,7 @@ import dev.skidfuscator.obfuscator.transform.impl.sdk.SdkInjectorTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.signature.SignatureObfuscationTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.string.StringEncryptionType;
 import dev.skidfuscator.obfuscator.transform.impl.string.StringTransformerV2;
+import dev.skidfuscator.obfuscator.transform.impl.string.PolymorphicStringTransformer;
 import dev.skidfuscator.obfuscator.util.ConsoleColors;
 import dev.skidfuscator.obfuscator.util.MapleJarUtil;
 import dev.skidfuscator.obfuscator.util.MiscUtil;
@@ -384,6 +388,28 @@ public class Skidfuscator {
          * event-less transformers, so the EventBus never invokes them — they
          * must be called explicitly here.
          */
+        final StringAnnotationEncryptionTransformer stringAnnotationEncryption = transformers.stream()
+                .filter(StringAnnotationEncryptionTransformer.class::isInstance)
+                .map(StringAnnotationEncryptionTransformer.class::cast)
+                .findFirst()
+                .orElse(null);
+        if (stringAnnotationEncryption != null) {
+            LOGGER.post("Running late pass [String Annotation Encryption]...");
+            stringAnnotationEncryption.apply();
+            LOGGER.log(stringAnnotationEncryption.getResult());
+        }
+
+        final IntAnnotationEncryptionTransformer intAnnotationEncryption = transformers.stream()
+                .filter(IntAnnotationEncryptionTransformer.class::isInstance)
+                .map(IntAnnotationEncryptionTransformer.class::cast)
+                .findFirst()
+                .orElse(null);
+        if (intAnnotationEncryption != null) {
+            LOGGER.post("Running late pass [Int Annotation Encryption]...");
+            intAnnotationEncryption.apply();
+            LOGGER.log(intAnnotationEncryption.getResult());
+        }
+
         /*
          * Method merging runs BEFORE signature obfuscation: it aggregates several
          * threaded methods into one seed-dispatched host and reroutes their plain
@@ -425,6 +451,16 @@ public class Skidfuscator {
             LOGGER.post("Running late pass [Method Dispatch]...");
             methodDispatch.apply();
             LOGGER.log(methodDispatch.getResult());
+        }
+
+        final OutlinerTransformer outliner = new OutlinerTransformer(this);
+        if (outliner.isEnabled()) {
+            for (String exemption : outliner.getConfig().getExemptions()) {
+                exemptAnalysis.add(outliner.getClass(), exemption);
+            }
+            LOGGER.post("Running late pass [Outliner]...");
+            outliner.apply();
+            LOGGER.log(outliner.getResult());
         }
 
         final InvokeDynamicMethodTransformer methodCallObfuscation =
@@ -795,8 +831,11 @@ public class Skidfuscator {
                     // BASE
                     new RandomInitTransformer(this),
                     new InterproceduralTransformer(this),
+                    new FlowFactoryMakerTransformer(this),
                     // ----- COMMUNITY -----
                     new NumberTransformer(this),
+                    new IntAnnotationEncryptionTransformer(this),
+                    new StringAnnotationEncryptionTransformer(this),
                     new SwitchTransformer(this),
                     new BasicConditionTransformer(this),
                     new BasicExceptionTransformer(this),
@@ -817,6 +856,7 @@ public class Skidfuscator {
             if (tsConfig.hasPath("stringEncryption.type")) {
                 switch (tsConfig.getEnum(StringEncryptionType.class, "stringEncryption.type")) {
                     case STANDARD: transformers.add(new StringTransformerV2(this)); break;
+                    case POLYMORPHIC: transformers.add(new PolymorphicStringTransformer(this)); break;
                 }
             } else {
                 transformers.add(new StringTransformerV2(this));
@@ -1050,7 +1090,7 @@ public class Skidfuscator {
                 "│  "
         )){
             for (SkidGroup group : hierarchy.getGroups()) {
-                if (group.getMethodNodeList().stream().anyMatch(e -> exemptAnalysis.isExempt(e))) {
+                if (group.getMethodNodeList().stream().anyMatch(e -> exemptAnalysis.isExempt(e) || exemptAnalysis.isExempt(e.owner))) {
                     progressBar.tick();
                     continue;
                 }
