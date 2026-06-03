@@ -266,8 +266,25 @@ public class SkidHierarchy implements Hierarchy {
                 for (MethodNode method : c.getMethods()) {
                     final SkidControlFlowGraph cfg = (SkidControlFlowGraph) skidfuscator.getIrFactory().getUnsafe(method);
                     if (cfg == null) {
-                        for (SkidMethodNode skidMethod : methods) {
-                            for (AbstractInsnNode instruction : skidMethod.node.instructions) {
+                        /*
+                         * No IR was lifted for this method (typically an exempt or
+                         * library class whose CFG is never built). Resolve its
+                         * invocations directly from THIS method's raw bytecode.
+                         *
+                         * Bugfix: this loop used to iterate the global `methods`
+                         * list instead of the current method. That attributed every
+                         * call site in the whole program to this single IR-less
+                         * method and added a bytecode-only SkidInvocation
+                         * (SkidInvocation#isExempt() == true) to every called group.
+                         * A single IR-less method therefore flooded essentially every
+                         * group with "exempt" invokers, so SkidGroup#isEntryPoint()
+                         * returned true everywhere and the InterproceduralTransformer
+                         * threaded the seed through nothing. This surfaced when feeding
+                         * Skidfuscator a ProGuard-prerenamed jar, which carries ~15
+                         * IR-less exempt org/jnativehook methods.
+                         */
+                        {
+                            for (AbstractInsnNode instruction : method.node.instructions) {
 
                                 final ClassMethodHash target;
                                 final SkidInvocation skidInvocation;

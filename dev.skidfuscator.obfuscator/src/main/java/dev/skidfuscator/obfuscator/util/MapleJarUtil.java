@@ -40,6 +40,31 @@ public class MapleJarUtil {
     }
 
     public static void dumpJar(Skidfuscator skidfuscator, PassGroup masterGroup, String outputFile) throws IOException {
+        // Tamper protection materialises a cross-class integrity mesh at output time,
+        // which requires buffering every class's final bytes before stamping (a target
+        // must be frozen before the holder that hashes it). It needs the SDK helper to
+        // ship. When off, the legacy single-pass streaming dump below runs unchanged.
+        final boolean tamperRequested = skidfuscator.getConfig().getBoolean("tamperProtection.enabled", false);
+        if (tamperRequested) {
+            final boolean sdkEnabled = skidfuscator.getConfig().getBoolean("sdk.enabled", true);
+            // fileCrasher appends a trailing slash to class entries, so the runtime
+            // resource read would never find the class and every check would be inert.
+            final boolean fileCrasher = skidfuscator.getConfig().getBoolean("fileCrasher.enabled", false);
+            if (sdkEnabled && !fileCrasher) {
+                new dev.skidfuscator.obfuscator.phantom.jphantom.TamperJarDumper(
+                        skidfuscator,
+                        skidfuscator.getJarContents(),
+                        skidfuscator.getClassSource()
+                ).dump(new File(outputFile));
+                return;
+            }
+            Skidfuscator.LOGGER.warn(
+                    "\r[tamper] tamperProtection skipped this run: "
+                            + (!sdkEnabled ? "requires sdk.enabled" : "incompatible with fileCrasher.enabled")
+                            + ". Output written without integrity checks.\n"
+            );
+        }
+
         (new PhantomResolvingJarDumper(skidfuscator, skidfuscator.getJarContents(), skidfuscator.getClassSource()) {
 
             private Map<String, JarClassData> jarClassDataMap = skidfuscator

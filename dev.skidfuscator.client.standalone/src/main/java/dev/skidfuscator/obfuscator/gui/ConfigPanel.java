@@ -111,7 +111,7 @@ public class ConfigPanel extends JPanel implements SkidPanel {
 
     // ------------------------------------------------------------------
     // Card layout
-    // ------------------------------------------------------------------
+    // -------------------------------- ----------------------------------
 
     private Card formCard;
     private GridBagConstraints rowGbc;

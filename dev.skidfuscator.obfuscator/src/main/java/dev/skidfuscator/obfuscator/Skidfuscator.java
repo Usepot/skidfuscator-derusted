@@ -55,6 +55,7 @@ import dev.skidfuscator.obfuscator.transform.impl.flow.exception.BasicExceptionT
 import dev.skidfuscator.obfuscator.transform.impl.flow.interprocedural.InterproceduralTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.flow.interprocedural.RandomInitTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.hash.InstanceOfHashTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.integrity.TamperProtectionTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.hash.StringEqualsIgnoreCaseHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.loop.LoopConditionTransformer;
@@ -855,6 +856,7 @@ public class Skidfuscator {
                     new StringEqualsHashTransformer(this),
                     new StringEqualsIgnoreCaseHashTransformer(this),
                     new InstanceOfHashTransformer(this),
+                    new TamperProtectionTransformer(this),
                     //new LoopConditionTransformer(this),
                 /*
                 new FlatteningFlowTransformer(this),*/

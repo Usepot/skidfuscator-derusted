@@ -1,8 +1,58 @@
 # Tamper Protection — Design & Implementation Plan
 
-> Status: **design only** (no code yet). Scope chosen: plan/design doc.
+> Status: **Milestone 1 implemented** (Tier A mesh, hard-fail, opt-in). Milestones 2–3 still design-only.
 > Granularity: **cross-class mesh** (Option 2) — staged **Tier A (DAG, whole-file hash) → Tier B (cyclic, method-Code region)**.
 > Tamper response: **staged — hard-fail first, seed-couple later**.
+
+---
+
+## 0. Implementation status (Milestone 1)
+
+M1 is built and typechecks (JDK 17 `javac`, testbed recipe). Off by default; when
+disabled the legacy single-pass dump path is byte-for-byte unchanged.
+
+**Key deviation from the original §3 plan — injection moved to output time.** Instead of
+injecting `Tamper.verify(B.class, <sentinel>)` during transforms and patching the sentinel
+LDC later, the check is emitted *at dump time* with the **real** hash already computed. This
+removes the design's #1 fragility (a sentinel LDC surviving number-encryption) and the
+remapper-interaction question, while keeping the mesh + Tier A whole-file hash + reverse-topo
+stamp intact. Trade-off: the check is **not** itself obfuscated in M1 (acceptable — the design
+always staged obfuscation/seed-coupling to M3). Re-introducing transform-time injection is the
+natural path for M3 seed-coupling.
+
+**Files (M1):**
+- `dev.skidfuscator.sdk/.../sdk/Tamper.java` — runtime `verify`/`verifyExit(Class,long)`;
+  reads the target's own bytes via an absolute resource path (`/a/b/C.class`), whole-file
+  `LongHashFunction.xx3().hashBytes`, hard-fails on mismatch; lenient when bytes can't be read
+  (no false positives on exploded/instrumented runs).
+- `transform/impl/integrity/IntegrityGraph.java` — edges A→B, post-order DFS `dependencyOrder()`
+  (targets before holders), cycle detection, coverage/exposed-source report.
+- `transform/impl/integrity/TamperProtectionConfig.java` — `isEnabled()` defaults **false**
+  (mirrors `DriverConfig`); `getAction()` = `THROW`|`EXIT`.
+- `transform/impl/integrity/TamperProtectionTransformer.java` — enable gate / config anchor /
+  `requiresSdk()`; logs the mesh is armed at `FinalSkidTransformEvent`.
+- `phantom/jphantom/TamperJarDumper.java` — the two-pass dumper (buffer final remapped bytes →
+  reverse-topo stamp each holder's `<clinit>` with `Tamper.verify(B.class, hash(B))` using the
+  frozen target bytes, re-serialised with `COMPUTE_MAXS` → write all + resources).
+- `util/MapleJarUtil.java` — `dumpJar` branches to `TamperJarDumper` only when
+  `tamperProtection.enabled && sdk.enabled && !fileCrasher.enabled`; otherwise legacy path.
+- `Skidfuscator.java` — registers the transformer. `gui/TransformerPanel.java` — "Tamper
+  Protection" card (id `tamperProtection`) with a `THROW`/`EXIT` toggle. `defaultConfig.hocon`
+  — `tamperProtection { enabled = false, action = THROW }`.
+
+**Mesh shape (M1):** eligible classes (non-exempt, non-SDK, non interface/annotation/enum)
+are sorted deterministically and chained — `c_i` verifies `c_{i-1}` — guaranteeing a DAG. The
+last class in the order is the unavoidable Tier A exposed source (logged). One check per holder;
+redundancy/multi-edge is later hardening (§6).
+
+**Determinism** rests on the same guarantee the codebase already relies on: `SDK.checkType`
+embeds a build-time `xx3` hash that the runtime recomputes. The build hashes the exact `byte[]`
+it writes to the jar; the runtime reads the exact same entry → hashes match.
+
+**M1 limitations / not yet done:** Tier B (method-Code region, true cycles) — §2/§8 M2;
+seed-coupled silent corruption — §5/§8 M3; multiple checks/in-edges per class — §6; the check
+call is visible cleartext (not obfuscated); incompatible with `fileCrasher` (auto-bypassed with a
+warning); `<clinit>`-only trigger (a class never initialised at runtime never self-checks).
 
 ---
 

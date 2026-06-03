@@ -415,6 +415,20 @@ public class TransformerPanel extends JPanel {
                 "Injects the Skidfuscator runtime SDK into the output jar. Required by SDK-dependent passes.",
                 true, null, Collections.emptyList());
 
+        addSection(host, "tamperProtection", "Tamper Protection",
+                "Injects a cross-class self-integrity mesh into the output: each protected class verifies "
+                        + "a sibling's whole-file checksum at load time, so patching one class trips a checker "
+                        + "in another. Requires the SDK. Off by default.",
+                false, "Hardening",
+                Collections.singletonList(TransformerOptionDefinition.builder()
+                        .key("action").label("On tamper")
+                        .type(TransformerOptionType.ENUM)
+                        .enumValues(Arrays.asList("THROW", "EXIT"))
+                        .defaultValue("THROW")
+                        .description("How a class reacts when a sibling's checksum mismatches: "
+                                + "THROW raises an error from the verifying class; EXIT halts the JVM.")
+                        .build()));
+
         addSection(host, "methodCallObfuscation", "Method Call Obfuscation",
                 "Rewrites eligible method calls into invokedynamic callsites with per-class bootstrap resolvers. Off by default.",
                 false, "Risky", Collections.emptyList());

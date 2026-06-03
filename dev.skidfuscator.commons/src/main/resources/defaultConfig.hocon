@@ -98,6 +98,17 @@ reference {
   enabled: false
 }
 
+# Cross-class self-integrity mesh injected at output time. Each protected class
+# verifies a sibling's whole-file checksum in its <clinit>, so patching one class
+# trips a checker in another. Requires sdk.enabled. Off by default (byte-for-byte
+# identical output to the legacy pipeline when disabled).
+tamperProtection {
+  enabled = false
+  # Reaction on a checksum mismatch: THROW (raise an error from the verifying
+  # class) or EXIT (halt the JVM).
+  action = THROW
+}
+
 fileCrasher: {
   enabled: false
 }
