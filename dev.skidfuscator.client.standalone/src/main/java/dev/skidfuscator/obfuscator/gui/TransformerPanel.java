@@ -129,15 +129,13 @@ public class TransformerPanel extends JPanel {
                         .description("Type of string encryption to apply")
                         .build()));
 
-        addCategory(unusedHost, "Strings", "Legacy/default config entries that are not registered in the current runtime.");
+        addSection(host, "stringAnnotationEncryption", "String Annotation Encryption",
+                "Encrypts string values stored in Java annotations during the late output pass.",
+                true, "Late", Collections.emptyList());
 
-        addSection(unusedHost, "stringAnnotationEncryption", "String Annotation Encryption",
-                "Encrypts string values stored in Java annotations at runtime.",
-                true, "Unwired", Collections.emptyList());
-
-        addSection(unusedHost, "intAnnotationEncryption", "Int Annotation Encryption",
-                "Encrypts integer values stored in Java annotations.",
-                true, "Unwired", Collections.emptyList());
+        addSection(host, "intAnnotationEncryption", "Int Annotation Encryption",
+                "Encrypts integer values stored in Java annotations during the late output pass.",
+                true, "Late", Collections.emptyList());
 
         // ---------------- Numbers / Hashes ----------------
         addCategory(host, "Numbers & Hashing", "Polymorphic math, hashed comparisons and lookups.");
@@ -173,7 +171,24 @@ public class TransformerPanel extends JPanel {
 
         addSection(host, "flowCondition", "Flow Condition",
                 "Adds bogus conditions and opaque predicates to control flow branches.",
-                true, null, Collections.emptyList());
+                true, null,
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("compressing.enabled").label("Compress guard seed")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Hash the full 64-bit seed folded to 32 bits so a guard constant no longer reveals the seed (~2^32 candidates). Requires Wide Seed.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("compressing.salt").label("Non-linear fold")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Use a non-linear multiply-mix fold to resist cross-guard correlation. Requires guard compression.")
+                                .build()));
+
+        addSection(host, "seed", "Wide Seed (64-bit)",
+                "Thread the per-block flow seed as a 64-bit long instead of 32-bit, so a single guard read yields ~2^32 candidate seeds instead of one. Required by Flow Condition guard compression.",
+                false, "Hardening", Collections.emptyList());
 
         addSection(host, "flowException", "Flow Exception",
                 "Wraps control flow in fake exception handlers to confuse decompilers.",
@@ -222,16 +237,8 @@ public class TransformerPanel extends JPanel {
 
         addCategory(unusedHost, "Control Flow", "Control-flow config entries without a registered transformer in this build.");
 
-        addSection(unusedHost, "flowFactoryMaker", "Flow Factory Maker",
-                "Materialises seed factories for inter-procedural flow obfuscation.",
-                true, "Unwired", Collections.emptyList());
-
         addSection(unusedHost, "exceptionReturn", "Exception Return",
                 "Replaces ordinary returns with exception-driven control flow exits.",
-                true, "Unwired", Collections.emptyList());
-
-        addSection(unusedHost, "outliner", "Outliner",
-                "Outlines instruction blocks into synthetic helper methods.",
                 true, "Unwired", Collections.emptyList());
 
         // ---------------- Inter-procedural ----------------
@@ -246,6 +253,10 @@ public class TransformerPanel extends JPanel {
                         .defaultValue(true)
                         .description("Thread the flow seed through static-method call edges so a static method's seed depends on its call path instead of a per-class constant. Adds a hidden int parameter to threaded static methods. On by default.")
                         .build()));
+
+        addSection(host, "flowFactoryMaker", "Flow Factory Maker",
+                "Materialises seed factories for inter-procedural flow obfuscation.",
+                true, null, Collections.emptyList());
 
         addSection(host, "interproceduralHarden", "Interprocedural Harden",
                 "Hardens the seed plumbing with extra randomisation per call-site.",
@@ -453,6 +464,10 @@ public class TransformerPanel extends JPanel {
                                 .description("Approximate instruction-budget cap for a merged host before starting a new host.")
                                 .build()));
 
+        addSection(host, "outliner", "Outliner",
+                "Outlines instruction blocks into synthetic helper methods during the late output pass.",
+                true, "Late", Collections.emptyList());
+
         addSection(host, "constructorObfuscation", "Constructor Obfuscation",
                 "Allows eligible transformers to process constructor bodies after super()/this() initialization. Off by default.",
                 false, "Risky", Collections.emptyList());
@@ -557,6 +572,14 @@ public class TransformerPanel extends JPanel {
         config.setGlobalExclusions(globalExclusions);
 
         for (TransformerCard card : sections.values()) {
+            if ("seed".equals(card.id)) {
+                // seed.wide is a top-level flag, not a transformer; the card toggle
+                // IS the flag. Write seed.wide (read by DefaultSkidConfig.isSeedWide).
+                final Map<String, Object> seedOptions = new HashMap<>(card.optionValues());
+                seedOptions.put("wide", card.isToggled());
+                config.addTransformer("seed", card.isToggled(), seedOptions, Collections.emptyList());
+                continue;
+            }
             config.addTransformer(card.id, card.isToggled(), card.optionValues(), Collections.emptyList());
         }
 

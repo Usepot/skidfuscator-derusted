@@ -69,16 +69,29 @@ public class SwitchJumpRenderer extends AbstractInstructionRenderer<SwitchStmt> 
             basicBlock.cfg.addEdge(new SwitchEdge<>(seededBlock, basicBlock, stmt.getOpcode()));
 
             // Add seed loader
-            this.addSeedLoader(
-                    methodNode,
-                    basicBlock,
-                    target,
-                    0,
-                    methodNode.getFlowPredicate(),
-                    methodNode.getBlockPredicate(seededBlock),
-                    "Switch Entry [" + entry.getKey() + ", og:" + target.getDisplayName()
-                            + ", redirected: " + basicBlock.getDisplayName() + ")"
-            );
+            if (methodNode.getSkidfuscator().getConfig().isSeedWide()) {
+                this.addSeedLoaderWide(
+                        methodNode,
+                        basicBlock,
+                        target,
+                        0,
+                        methodNode.getFlowPredicate(),
+                        methodNode.getBlockPredicateLong(seededBlock),
+                        "Switch Entry [" + entry.getKey() + ", og:" + target.getDisplayName()
+                                + ", redirected: " + basicBlock.getDisplayName() + ")"
+                );
+            } else {
+                this.addSeedLoader(
+                        methodNode,
+                        basicBlock,
+                        target,
+                        0,
+                        methodNode.getFlowPredicate(),
+                        methodNode.getBlockPredicate(seededBlock),
+                        "Switch Entry [" + entry.getKey() + ", og:" + target.getDisplayName()
+                                + ", redirected: " + basicBlock.getDisplayName() + ")"
+                );
+            }
 
             if (IntegerBlockPredicateRenderer.DEBUG) {
                 final Local local1 = basicBlock.cfg.getLocals().get(seededBlock.cfg.getLocals().getMaxLocals() + 2);
@@ -123,15 +136,27 @@ public class SwitchJumpRenderer extends AbstractInstructionRenderer<SwitchStmt> 
         basicBlock.cfg.addEdge(new SwitchEdge<>(seededBlock, basicBlock, stmt.getOpcode()));
 
         // Add seed loader
-        this.addSeedLoader(
-                methodNode,
-                basicBlock,
-                target,
-                0,
-                methodNode.getFlowPredicate(),
-                methodNode.getBlockPredicate(seededBlock),
-                "Switch Default"
-        );
+        if (methodNode.getSkidfuscator().getConfig().isSeedWide()) {
+            this.addSeedLoaderWide(
+                    methodNode,
+                    basicBlock,
+                    target,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicateLong(seededBlock),
+                    "Switch Default"
+            );
+        } else {
+            this.addSeedLoader(
+                    methodNode,
+                    basicBlock,
+                    target,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicate(seededBlock),
+                    "Switch Default"
+            );
+        }
 
         if (IntegerBlockPredicateRenderer.DEBUG) {
             final Local local1 = basicBlock.cfg.getLocals().get(seededBlock.cfg.getLocals().getMaxLocals() + 2);

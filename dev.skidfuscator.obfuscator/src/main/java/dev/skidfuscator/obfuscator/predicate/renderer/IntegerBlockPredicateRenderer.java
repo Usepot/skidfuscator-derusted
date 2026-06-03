@@ -49,6 +49,7 @@ import org.mapleir.ir.cfg.ControlFlowGraph;
 import org.mapleir.ir.code.Expr;
 import org.mapleir.ir.code.Stmt;
 import org.mapleir.ir.code.expr.ArithmeticExpr;
+import org.mapleir.ir.code.expr.CastExpr;
 import org.mapleir.ir.code.expr.ConstantExpr;
 import org.mapleir.ir.code.expr.FieldLoadExpr;
 import org.mapleir.ir.code.expr.VarExpr;
@@ -151,15 +152,43 @@ import java.util.stream.Collectors;
          * -->  Return a variable expression which calls the local storing the
          *      predicate
          */
-        flowPredicate.setGetter(block -> {
-            if (block.isFlagSet(SkidBlock.FLAG_NO_OPAQUE)) {
-                return new ConstantExpr(flowPredicate.get((SkidBlock) block), Type.INT_TYPE);
-            }
+        if (skidfuscator.getConfig().isSeedWide()) {
+            /*
+             * seed.wide: the flow local carries a 64-bit seed. The default getter
+             * narrows it to the (int) low-32 projection (L2I) so every legacy
+             * consumer behaves exactly as before, while getWide() exposes the full
+             * long for the guard. The setter stores the long.
+             */
+            flowPredicate.setGetter(new PredicateFlowGetter() {
+                @Override
+                public Expr get(final BasicBlock block) {
+                    if (block.isFlagSet(SkidBlock.FLAG_NO_OPAQUE)) {
+                        return new ConstantExpr(flowPredicate.get((SkidBlock) block), Type.INT_TYPE);
+                    }
+                    return new CastExpr(new VarExpr(local, Type.LONG_TYPE), Type.INT_TYPE);
+                }
 
-            return new VarExpr(local, Type.INT_TYPE);
-        });
+                @Override
+                public Expr getWide(final BasicBlock block) {
+                    if (block.isFlagSet(SkidBlock.FLAG_NO_OPAQUE)) {
+                        return new ConstantExpr(flowPredicate.getLong((SkidBlock) block), Type.LONG_TYPE);
+                    }
+                    return new VarExpr(local, Type.LONG_TYPE);
+                }
+            });
 
-        flowPredicate.setSetter(expr -> new CopyVarStmt(new VarExpr(local, Type.INT_TYPE), expr));
+            flowPredicate.setSetter(expr -> new CopyVarStmt(new VarExpr(local, Type.LONG_TYPE), expr));
+        } else {
+            flowPredicate.setGetter(block -> {
+                if (block.isFlagSet(SkidBlock.FLAG_NO_OPAQUE)) {
+                    return new ConstantExpr(flowPredicate.get((SkidBlock) block), Type.INT_TYPE);
+                }
+
+                return new VarExpr(local, Type.INT_TYPE);
+            });
+
+            flowPredicate.setSetter(expr -> new CopyVarStmt(new VarExpr(local, Type.INT_TYPE), expr));
+        }
 
         final MethodOpaquePredicate methodPredicate = methodNode.getPredicate();
 
@@ -327,8 +356,21 @@ import java.util.stream.Collectors;
         /*
          * Here we transition the method
          */
-        final Expr loadedChanged = /*new ConstantExpr(seedEntry.getSeed(), Type.INT_TYPE); */
-                new XorNumberTransformer().getNumber(
+        final boolean seedWide = skidfuscator.getConfig().isSeedWide();
+        final Expr loadedChanged = seedWide
+                /*
+                 * Wide entry init: seed the long flow local with P_long(entry). The
+                 * method-seed getter's getWide() evaluates to getPrivateLong() at
+                 * runtime, so (P_long(entry) ^ getPrivateLong) ^ getPrivateLong
+                 * collapses to P_long(entry).
+                 */
+                ? new XorNumberTransformer().getNumberLong(
+                        methodNode.getBlockPredicateLong(seedEntry), // Outcome (64-bit)
+                        methodNode.getPredicate().getPrivateLong(),  // Entry (64-bit)
+                        entryPoint,
+                        getter
+                )
+                : new XorNumberTransformer().getNumber(
                         methodNode.getBlockPredicate(seedEntry), // Outcome
                         methodNode.getPredicate().getPrivate(), // Entry
                         entryPoint,
@@ -414,16 +456,29 @@ import java.util.stream.Collectors;
                     .stream()
                     .filter(e -> e instanceof ImmediateEdge)
                     .forEach(e -> {
-                        this.addSeedLoader(
-                                e.src(),
-                                e.dst(),
-                                e.src().size(),
-                                localGetter,
-                                localSetter,
-                                methodNode.getBlockPredicate((SkidBlock) e.src()),
-                                methodNode.getBlockPredicate((SkidBlock) e.dst()),
-                                "Immediate"
-                        );
+                        if (seedWide) {
+                            this.addSeedLoaderLong(
+                                    e.src(),
+                                    e.dst(),
+                                    e.src().size(),
+                                    localGetter,
+                                    localSetter,
+                                    methodNode.getBlockPredicateLong((SkidBlock) e.src()),
+                                    methodNode.getBlockPredicateLong((SkidBlock) e.dst()),
+                                    "Immediate"
+                            );
+                        } else {
+                            this.addSeedLoader(
+                                    e.src(),
+                                    e.dst(),
+                                    e.src().size(),
+                                    localGetter,
+                                    localSetter,
+                                    methodNode.getBlockPredicate((SkidBlock) e.src()),
+                                    methodNode.getBlockPredicate((SkidBlock) e.dst()),
+                                    "Immediate"
+                            );
+                        }
                     });
         }
 
@@ -592,5 +647,34 @@ import java.util.stream.Collectors;
                     jumpStmt
             );
         }
+    }
+
+    /**
+     * 64-bit counterpart of {@link #addSeedLoader}: advances the long flow local
+     * from {@code value} (the current block predicate) to {@code target} (the next
+     * block predicate) via {@code (target ^ value) ^ seed}. Used on the seed.wide
+     * path. The DEBUG self-check block is intentionally omitted for the wide path.
+     */
+    private void addSeedLoaderLong(final BasicBlock block,
+                                   final BasicBlock targetBlock,
+                                   final int index,
+                                   final PredicateFlowGetter getter,
+                                   final PredicateFlowSetter local,
+                                   final long value,
+                                   final long target,
+                                   final String type
+    ) {
+        final Expr load = NumberManager.encryptLong(
+                target,
+                value,
+                block,
+                getter
+        );
+        final Stmt set = local.apply(load);
+
+        block.add(
+                index < 0 ? block.size() : index,
+                set
+        );
     }
 }

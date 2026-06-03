@@ -11,6 +11,7 @@ import org.mapleir.ir.code.expr.ConstantExpr;
 import org.objectweb.asm.Type;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 
 public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGeneratorV3 {
@@ -45,23 +46,34 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
             encrypted[i] ^= pad[i % pad.length];
         }
 
-        final String encoded = Base64.getEncoder().encodeToString(encrypted);
         final int salt = RandomUtil.nextInt() | 1;
-        final int mask = salt ^ encoded.hashCode() ^ padHash;
-        final int guard = ((salt * 31) >>> 4) ^ (encoded.length() * 17) ^ (padHash >>> 3);
+        final int guard = ((salt * 31) >>> 4) ^ (encrypted.length * 17) ^ (padHash >>> 3);
+
+        final byte[] packed = new byte[encrypted.length + 8];
+        packed[0] = (byte) (salt >>> 24);
+        packed[1] = (byte) (salt >>> 16);
+        packed[2] = (byte) (salt >>> 8);
+        packed[3] = (byte) salt;
+        packed[4] = (byte) (guard >>> 24);
+        packed[5] = (byte) (guard >>> 16);
+        packed[6] = (byte) (guard >>> 8);
+        packed[7] = (byte) guard;
+        System.arraycopy(encrypted, 0, packed, 8, encrypted.length);
+
+        final String encoded = Base64.getEncoder().encodeToString(packed);
+        final int common = encoded.hashCode() ^ padHash;
+        final int mask = salt ^ common ^ guard;
 
         return callInjectMethod(
                 node.getParent(),
                 "decryptor",
-                "(Ljava/lang/String;III)Ljava/lang/String;",
+                "(Ljava/lang/String;I)Ljava/lang/String;",
                 new ConstantExpr(encoded, TypeUtil.STRING_TYPE),
                 new ArithmeticExpr(
                         getThreadedStringSeedExpr(node, block),
                         new ConstantExpr(mask, Type.INT_TYPE),
                         ArithmeticExpr.Operator.XOR
-                ),
-                new ConstantExpr(salt, Type.INT_TYPE),
-                new ConstantExpr(guard, Type.INT_TYPE)
+                )
         );
     }
 
@@ -101,8 +113,22 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
             value = "decryptor",
             tags = InjectMethodTag.RANDOM_NAME
     )
-    private static String decryptBase64Padded(final String input, final int maskedKey, final int salt, final int guard) {
-        final byte[] decoded = Base64.getDecoder().decode(input.getBytes(StandardCharsets.UTF_8));
+    private static String decryptBase64Padded(final String input, final int maskedKey) {
+        final byte[] packed = Base64.getDecoder().decode(input.getBytes(StandardCharsets.UTF_8));
+
+        if (packed.length < 8) {
+            throw new IllegalStateException();
+        }
+
+        final int salt = ((packed[0] & 0xFF) << 24)
+                | ((packed[1] & 0xFF) << 16)
+                | ((packed[2] & 0xFF) << 8)
+                | (packed[3] & 0xFF);
+        final int guard = ((packed[4] & 0xFF) << 24)
+                | ((packed[5] & 0xFF) << 16)
+                | ((packed[6] & 0xFF) << 8)
+                | (packed[7] & 0xFF);
+        final byte[] decoded = Arrays.copyOfRange(packed, 8, packed.length);
 
         int padHash = 0x6D2B79F5;
 
@@ -112,13 +138,14 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
             padHash ^= padHash >>> 16;
         }
 
-        int noise = ((salt * 31) >>> 4) ^ (input.length() * 17) ^ (padHash >>> 3) ^ guard;
-        noise = ((noise * 31) >>> 4) ^ (noise >>> 16);
-        if (((noise ^ noise) | (localPad.length - localPad.length)) != 0) {
+        final int common = input.hashCode() ^ padHash;
+
+        final int noise = ((salt * 31) >>> 4) ^ (decoded.length * 17) ^ (padHash >>> 3) ^ guard;
+        if (noise != 0) {
             throw new IllegalStateException();
         }
 
-        final int key = maskedKey ^ salt ^ input.hashCode() ^ padHash;
+        final int key = maskedKey ^ salt ^ common ^ guard;
         final byte[] keyBytes = Integer.toString(key).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < decoded.length; i++) {

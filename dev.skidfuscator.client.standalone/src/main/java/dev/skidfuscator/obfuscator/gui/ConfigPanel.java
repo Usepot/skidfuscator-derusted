@@ -92,7 +92,6 @@ public class ConfigPanel extends JPanel implements SkidPanel {
         body.add(buildFormCard());
         body.add(Box.createVerticalStrut(UiTheme.PAD_M));
         body.add(buildOptionsCard());
-        new UUID();
         body.add(Box.createVerticalStrut(UiTheme.PAD_M));
         body.add(buildLegendCard());
         body.add(Box.createVerticalGlue());

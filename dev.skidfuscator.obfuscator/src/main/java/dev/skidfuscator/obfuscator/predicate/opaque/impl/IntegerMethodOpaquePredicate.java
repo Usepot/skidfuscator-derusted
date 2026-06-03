@@ -13,6 +13,10 @@ public class IntegerMethodOpaquePredicate implements MethodOpaquePredicate {
     private final SkidGroup group;
     private final int predicate;
     private final int publicPredicate;
+    // Lazily-derived 64-bit seeds; only materialised under seed.wide so the legacy
+    // int path draws exactly the same amount of randomness (byte-for-byte baseline).
+    private Long predicateLong;
+    private Long publicPredicateLong;
     private PredicateFlowGetter getter;
     private PredicateFlowSetter setter;
 
@@ -50,5 +54,21 @@ public class IntegerMethodOpaquePredicate implements MethodOpaquePredicate {
     @Override
     public int getPrivate() {
         return predicate;
+    }
+
+    @Override
+    public long getPublicLong() {
+        if (publicPredicateLong == null) {
+            publicPredicateLong = (RandomUtil.nextLong() << 32) | (publicPredicate & 0xFFFFFFFFL);
+        }
+        return publicPredicateLong;
+    }
+
+    @Override
+    public long getPrivateLong() {
+        if (predicateLong == null) {
+            predicateLong = (RandomUtil.nextLong() << 32) | (predicate & 0xFFFFFFFFL);
+        }
+        return predicateLong;
     }
 }

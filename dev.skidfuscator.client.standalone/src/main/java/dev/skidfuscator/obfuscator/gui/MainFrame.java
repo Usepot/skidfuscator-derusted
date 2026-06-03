@@ -83,9 +83,12 @@ public class MainFrame extends JFrame {
     private PrimaryButton startButton;
     private SecondaryButton enterpriseButton;
     private SecondaryButton discordButton;
+    private SecondaryButton cancelButton;
     private JProgressBar statusProgress;
     private JLabel statusLabel;
     private StatusBadge statusBadge;
+    private SwingWorker<Void, String> obfuscationWorker;
+    private volatile Thread obfuscationThread;
 
     private String activeView = VIEW_CONFIG;
 
@@ -343,6 +346,12 @@ public class MainFrame extends JFrame {
         enterpriseButton.addActionListener(e -> openUrl("https://skidfuscator.dev/pricing"));
         actions.add(enterpriseButton);
 
+        cancelButton = new SecondaryButton("Cancel");
+        cancelButton.setEnabled(false);
+        cancelButton.setVisible(false);
+        cancelButton.addActionListener(e -> cancelObfuscation());
+        actions.add(cancelButton);
+
         startButton = new PrimaryButton("Start Obfuscation");
         startButton.addActionListener(e -> startObfuscation());
         actions.add(startButton);
@@ -390,7 +399,18 @@ public class MainFrame extends JFrame {
 
     private void refreshStartButton() {
         boolean ready = configPanel.getConfig().isValid() && configPanel.getRuntimeInstalled().get();
-        startButton.setEnabled(ready);
+        boolean running = isObfuscationRunning();
+        startButton.setEnabled(ready && !running);
+        if (cancelButton != null) {
+            cancelButton.setEnabled(running);
+            cancelButton.setVisible(running);
+            cancelButton.getParent().revalidate();
+            cancelButton.getParent().repaint();
+        }
+        if (running) {
+            return;
+        }
+
         if (ready) {
             setStatus(StatusBadge.Kind.SUCCESS, "Ready", "All checks passed. Press " + shortcutLabel() + " to obfuscate.", false, null);
         } else {
@@ -417,6 +437,70 @@ public class MainFrame extends JFrame {
     public ConfigPanel getConfigPanel() { return configPanel; }
     public TransformerPanel getTransformerPanel() { return transformerPanel; }
     public ExemptionPanel getExemptionPanel() { return exemptionPanel; }
+
+    private boolean isObfuscationRunning() {
+        return obfuscationWorker != null;
+    }
+
+    private void cancelObfuscation() {
+        SwingWorker<Void, String> worker = obfuscationWorker;
+        if (worker == null) {
+            return;
+        }
+
+        cancelButton.setEnabled(false);
+        setStatus(StatusBadge.Kind.WARNING, "Cancelling", "Cancelling obfuscation…", true, null);
+        worker.cancel(true);
+
+        Thread thread = obfuscationThread;
+        if (thread != null) {
+            thread.interrupt();
+        }
+    }
+
+    private void finishObfuscation(SwingWorker<Void, String> worker, boolean cancelled, Throwable failure) {
+        if (obfuscationWorker != worker) {
+            return;
+        }
+
+        obfuscationWorker = null;
+        refreshStartButton();
+
+        if (cancelled) {
+            setStatus(StatusBadge.Kind.WARNING, "Cancelled", "Obfuscation was cancelled.", false, null);
+            return;
+        }
+
+        if (failure != null) {
+            setStatus(StatusBadge.Kind.DANGER, "Failed",
+                    "Obfuscation failed — see the console for details.", false, null);
+            return;
+        }
+
+        setStatus(StatusBadge.Kind.SUCCESS, "Done",
+                "Obfuscation completed successfully.", false, null);
+
+        int option = JOptionPane.showOptionDialog(
+                MainFrame.this,
+                "Obfuscation completed successfully!",
+                "Success",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.INFORMATION_MESSAGE,
+                UIManager.getIcon("OptionPane.informationIcon"),
+                new Object[]{"OK", "Open Output Folder"},
+                "OK");
+
+        if (option == 1) {
+            try {
+                File outputFile = new File(configPanel.getOutputPath());
+                Desktop.getDesktop().open(outputFile.getParentFile());
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(MainFrame.this,
+                        "Could not open output folder: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
 
     /**
      * Build a HOCON config file that bakes in the user's exemption rules so the
@@ -450,7 +534,7 @@ public class MainFrame extends JFrame {
     }
 
     public void startObfuscation() {
-        if (!startButton.isEnabled()) return;
+        if (!startButton.isEnabled() || isObfuscationRunning()) return;
 
         ConfigPanel config = getConfigPanel();
         if (config.getInputPath().isEmpty()) {
@@ -505,6 +589,10 @@ public class MainFrame extends JFrame {
         SkidfuscatorSession session = sessionBuilder.build();
 
         startButton.setEnabled(false);
+        cancelButton.setVisible(true);
+        cancelButton.setEnabled(true);
+        cancelButton.getParent().revalidate();
+        cancelButton.getParent().repaint();
         enterpriseButton.setEnabled(true);
         setStatus(StatusBadge.Kind.INFO, "Running", "Obfuscating " + new File(config.getInputPath()).getName() + "…", true, null);
 
@@ -516,7 +604,9 @@ public class MainFrame extends JFrame {
         SwingWorker<Void, String> worker = new SwingWorker<Void, String>() {
             @Override
             protected Void doInBackground() {
+                Throwable failure = null;
                 try {
+                    obfuscationThread = Thread.currentThread();
                     if (finalProGuardClassRenaming) {
                         SwingUtilities.invokeLater(() -> setStatus(StatusBadge.Kind.INFO, "Renaming",
                                 "Running ProGuard class renaming before Skidfuscator…", true, null));
@@ -535,50 +625,21 @@ public class MainFrame extends JFrame {
 
                     deleteTemporaryFile(finalProGuardOutput, "ProGuard input jar");
                 } catch (Exception e) {
-                    SwingUtilities.invokeLater(e::printStackTrace);
-                    throw new RuntimeException(e);
+                    if (!isCancelled() && !Thread.currentThread().isInterrupted()) {
+                        failure = e;
+                        SwingUtilities.invokeLater(e::printStackTrace);
+                    }
+                } finally {
+                    obfuscationThread = null;
+
+                    boolean cancelled = isCancelled() || Thread.currentThread().isInterrupted();
+                    Throwable finalFailure = failure;
+                    SwingUtilities.invokeLater(() -> finishObfuscation(this, cancelled, finalFailure));
                 }
                 return null;
             }
-
-            @Override
-            protected void done() {
-                startButton.setEnabled(true);
-                boolean failed = isCancelled();
-                try { get(); }
-                catch (Exception e) { failed = true; }
-
-                if (failed) {
-                    setStatus(StatusBadge.Kind.DANGER, "Failed",
-                            "Obfuscation failed — see the console for details.", false, null);
-                    return;
-                }
-
-                setStatus(StatusBadge.Kind.SUCCESS, "Done",
-                        "Obfuscation completed successfully.", false, null);
-
-                int option = JOptionPane.showOptionDialog(
-                        MainFrame.this,
-                        "Obfuscation completed successfully!",
-                        "Success",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.INFORMATION_MESSAGE,
-                        UIManager.getIcon("OptionPane.informationIcon"),
-                        new Object[]{"OK", "Open Output Folder"},
-                        "OK");
-
-                if (option == 1) {
-                    try {
-                        File outputFile = new File(configPanel.getOutputPath());
-                        Desktop.getDesktop().open(outputFile.getParentFile());
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(MainFrame.this,
-                                "Could not open output folder: " + ex.getMessage(),
-                                "Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }
         };
+        obfuscationWorker = worker;
         worker.execute();
     }
 }

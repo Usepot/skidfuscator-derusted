@@ -28,6 +28,7 @@ import org.mapleir.ir.cfg.ControlFlowGraph;
 import org.mapleir.ir.code.Expr;
 import org.mapleir.ir.code.Stmt;
 import org.mapleir.ir.code.expr.ArithmeticExpr;
+import org.mapleir.ir.code.expr.CastExpr;
 import org.mapleir.ir.code.expr.ConstantExpr;
 import org.mapleir.ir.code.expr.FieldLoadExpr;
 import org.mapleir.ir.code.expr.VarExpr;
@@ -55,6 +56,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
     @Listen
     void handle(final InitGroupTransformEvent event) {
         final SkidGroup skidGroup = event.getGroup();
+        final boolean wide = skidfuscator.getConfig().isSeedWide();
 
         /*
          * This can occur. Warn the user then skip. No significant damage
@@ -138,7 +140,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
             indexGroup = parameterGroup.getArgs().size();
         }
 
-        parameterGroup.insertParameter(Type.INT_TYPE, indexGroup);
+        parameterGroup.insertParameter(wide ? Type.LONG_TYPE : Type.INT_TYPE, indexGroup);
 
         for (MethodNode methodNode : skidGroup.getMethodNodeList()) {
             final SkidMethodNode skidMethodNode = (SkidMethodNode) methodNode;
@@ -157,10 +159,13 @@ public class InterproceduralTransformer extends AbstractTransformer {
                     localMap.put(old, stringLocalEntry.getValue());
                     continue;
                 }
-                final int newId = oldId + 1;
+                // A long seed parameter occupies two local slots, so everything at
+                // or above the insertion point must shift by 2 (not 1) under wide.
+                final int slots = wide ? 2 : 1;
+                final int newId = oldId + slots;
 
                 final String newVar = old.replace("var" + oldStringId, "var" + Integer.toString(newId));
-                stringLocalEntry.getValue().setIndex(stringLocalEntry.getValue().getIndex() + 1);
+                stringLocalEntry.getValue().setIndex(stringLocalEntry.getValue().getIndex() + slots);
                 localMap.put(newVar, stringLocalEntry.getValue());
             }
 
@@ -238,7 +243,11 @@ public class InterproceduralTransformer extends AbstractTransformer {
                  * (n ^ C). A plain ConstantExpr is skipped and leaks the raw
                  * public seed at the call site, defeating the obfuscation.
                  */
-                args[args.length - 1] = new SkidConstantExpr(skidGroup.getPredicate().getPublic());
+                args[args.length - 1] = new SkidConstantExpr(
+                        wide
+                                ? (Object) skidGroup.getPredicate().getPublicLong()
+                                : (Object) skidGroup.getPredicate().getPublic()
+                );
 
                 for (Expr arg : args) {
                     assert arg != null : "Invocation now is null? " + invoker.asExpr();
@@ -251,12 +260,12 @@ public class InterproceduralTransformer extends AbstractTransformer {
                 if (isDynamic) {
                     final Handle boundFunc = (Handle) ((DynamicInvocationExpr) invoker.getExpr()).getBootstrapArgs()[1];
                     final Parameter handlerDesc = new Parameter(boundFunc.getDesc());
-                    handlerDesc.insertParameter(Type.INT_TYPE, indexGroup);
+                    handlerDesc.insertParameter(wide ? Type.LONG_TYPE : Type.INT_TYPE, indexGroup);
                     final Handle newBoundFunc = new Handle(boundFunc.getTag(), boundFunc.getOwner(), boundFunc.getName(),
                             handlerDesc.getDesc(), boundFunc.isInterface());
 
                     final Parameter parameter = new Parameter(invoker.getExpr().getDesc());
-                    parameter.insertParameter(Type.INT_TYPE, indexGroup);
+                    parameter.insertParameter(wide ? Type.LONG_TYPE : Type.INT_TYPE, indexGroup);
                     System.out.println("-----[ " + boundFunc.getOwner() + "#" + boundFunc.getName() + " ]-----");
                     System.out.println("\n" + Arrays.stream(((DynamicInvocationExpr) invoker.getExpr()).getArgumentExprs()).map(Expr::getType).map(Object::toString).collect(Collectors.joining("\n")) + "\n");
                     System.out.println("\n" + Arrays.stream(((DynamicInvocationExpr) invoker.getExpr()).getBootstrapArgs()).map(Object::toString).collect(Collectors.joining("\n")) + "\n");
@@ -267,7 +276,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
                     ((DynamicInvocationExpr) invoker.getExpr()).getBootstrapArgs()[1] = newBoundFunc;
                 } else {
                     final Parameter parameter = new Parameter(invoker.getExpr().getDesc());
-                    parameter.insertParameter(Type.INT_TYPE, indexGroup);
+                    parameter.insertParameter(wide ? Type.LONG_TYPE : Type.INT_TYPE, indexGroup);
                 }
             }
         }
@@ -319,58 +328,123 @@ public class InterproceduralTransformer extends AbstractTransformer {
         if (methodPredicate == null)
             return;
 
-        methodPredicate.setGetter(vertex -> {
-            final XorNumberTransformer numberTransformer = new XorNumberTransformer();
-            final SkidMethodNode skidMethodNode = (SkidMethodNode) vertex.cfg.getMethodNode();
-            final SkidClassNode skidClassNode = (SkidClassNode) skidMethodNode.owner;
-
-            final ClassOpaquePredicate classPredicate = skidMethodNode.isStatic()
-                    ? skidMethodNode.getParent().getStaticPredicate()
-                    : skidMethodNode.getParent().getClassPredicate();
-            int seed;
-            PredicateFlowGetter expr;
-            if (skidMethodNode.isClinit() || skidMethodNode.isInit()) {
-                final int randomSeed = skidClassNode.getRandomInt();
-                seed = randomSeed;
-
-                expr = FlowFactoryMakerTransformer.materializeSeedGetter(
-                        skidMethodNode.getSkidfuscator(),
-                        skidClassNode,
-                        randomSeed,
-                        vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed)
-                );
-            } else {
-                seed = classPredicate.get();
-                expr = classPredicate.getGetter();
+        methodPredicate.setGetter(new PredicateFlowGetter() {
+            @Override
+            public Expr get(final BasicBlock vertex) {
+                if (skidfuscator.getConfig().isSeedWide()) {
+                    // Under seed.wide the seed parameter is a long; project to int
+                    // via L2I so we never ILOAD a long-occupied slot (verify error).
+                    return new CastExpr(build(vertex, true), Type.INT_TYPE);
+                }
+                return build(vertex, false);
             }
 
-            if (skidMethodNode.getGroup().isInjectedMethodPredicate()) {
-                seed = seed ^ skidMethodNode.getGroup().getPredicate().getPublic();
+            @Override
+            public Expr getWide(final BasicBlock vertex) {
+                return build(vertex, true);
+            }
 
-                final PredicateFlowGetter previousExprGetter = expr;
-                expr = vertex2 -> {
-                    final ControlFlowGraph cfg = vertex2.getGraph();
+            private Expr build(final BasicBlock vertex, final boolean wide) {
+                final XorNumberTransformer numberTransformer = new XorNumberTransformer();
+                final SkidMethodNode skidMethodNode = (SkidMethodNode) vertex.cfg.getMethodNode();
+                final SkidClassNode skidClassNode = (SkidClassNode) skidMethodNode.owner;
 
-                    return new ArithmeticExpr(
-                            /* Get the seed from the parameter */
-                            new VarExpr(
-                                    cfg.getLocals().get(skidMethodNode.getGroup().getStackHeight()),
-                                    Type.INT_TYPE
-                            ),
-                            /* Hash the previous instruction */
-                            previousExprGetter.get(vertex2),
-                            /* Obv xor operation */
-                            ArithmeticExpr.Operator.XOR
+                final ClassOpaquePredicate classPredicate = skidMethodNode.isStatic()
+                        ? skidMethodNode.getParent().getStaticPredicate()
+                        : skidMethodNode.getParent().getClassPredicate();
+
+                // Base class seed (int) and the getter that loads it at runtime.
+                final int classSeed;
+                final PredicateFlowGetter classGetter;
+                if (skidMethodNode.isClinit() || skidMethodNode.isInit()) {
+                    final int randomSeed = skidClassNode.getRandomInt();
+                    classSeed = randomSeed;
+                    classGetter = FlowFactoryMakerTransformer.materializeSeedGetter(
+                            skidMethodNode.getSkidfuscator(),
+                            skidClassNode,
+                            randomSeed,
+                            vertex1 -> new SkidIntegerParseStaticInvocationExpr(randomSeed)
                     );
-                };
-            }
+                } else {
+                    classSeed = classPredicate.get();
+                    classGetter = classPredicate.getGetter();
+                }
 
-            return numberTransformer.getNumber(
-                    methodPredicate.getPrivate(),
-                    seed,
-                    vertex,
-                    expr
-            );
+                final boolean injected = skidMethodNode.getGroup().isInjectedMethodPredicate();
+
+                if (!wide) {
+                    int seed = classSeed;
+                    PredicateFlowGetter expr = classGetter;
+
+                    if (injected) {
+                        seed = seed ^ skidMethodNode.getGroup().getPredicate().getPublic();
+
+                        final PredicateFlowGetter previousExprGetter = expr;
+                        expr = vertex2 -> {
+                            final ControlFlowGraph cfg = vertex2.getGraph();
+
+                            return new ArithmeticExpr(
+                                    /* Get the seed from the parameter */
+                                    new VarExpr(
+                                            cfg.getLocals().get(skidMethodNode.getGroup().getStackHeight()),
+                                            Type.INT_TYPE
+                                    ),
+                                    /* Hash the previous instruction */
+                                    previousExprGetter.get(vertex2),
+                                    /* Obv xor operation */
+                                    ArithmeticExpr.Operator.XOR
+                            );
+                        };
+                    }
+
+                    return numberTransformer.getNumber(
+                            methodPredicate.getPrivate(),
+                            seed,
+                            vertex,
+                            expr
+                    );
+                }
+
+                /*
+                 * seed.wide: reconstruct the full 64-bit getPrivateLong(). The class
+                 * seed is sign-extended (I2L) to a long; for injected methods the
+                 * high entropy is carried by the 64-bit parameter (getPublicLong).
+                 *
+                 *   non-injected: (priv ^ (long)cs) ^ (long)cs                       == priv
+                 *   injected:     (priv ^ (long)cs ^ pub) ^ (paramLong ^ (long)cs)   == priv
+                 */
+                long startingLong = (long) classSeed;
+                PredicateFlowGetter exprWide =
+                        vertex2 -> new CastExpr(classGetter.get(vertex2), Type.LONG_TYPE);
+
+                if (injected) {
+                    startingLong = ((long) classSeed)
+                            ^ skidMethodNode.getGroup().getPredicate().getPublicLong();
+
+                    final PredicateFlowGetter previousWideGetter = exprWide;
+                    exprWide = vertex2 -> {
+                        final ControlFlowGraph cfg = vertex2.getGraph();
+
+                        return new ArithmeticExpr(
+                                /* The 64-bit seed parameter */
+                                new VarExpr(
+                                        cfg.getLocals().get(skidMethodNode.getGroup().getStackHeight()),
+                                        Type.LONG_TYPE
+                                ),
+                                /* (long) class seed, sign-extended */
+                                previousWideGetter.get(vertex2),
+                                ArithmeticExpr.Operator.XOR
+                        );
+                    };
+                }
+
+                return numberTransformer.getNumberLong(
+                        methodPredicate.getPrivateLong(),
+                        startingLong,
+                        vertex,
+                        exprWide
+                );
+            }
         });
     }
 }

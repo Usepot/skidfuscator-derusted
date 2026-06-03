@@ -56,6 +56,10 @@ public class SkidClassTree extends ClassTree {
             addVertex(cn);
         }
 
+        if ("module-info".equals(cn.getName())) {
+            return;
+        }
+
         if(cn != rootNode) {
             ClassNode sup;
 

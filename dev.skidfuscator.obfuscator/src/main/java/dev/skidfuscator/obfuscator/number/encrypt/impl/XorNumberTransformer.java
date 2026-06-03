@@ -32,4 +32,23 @@ public class XorNumberTransformer implements NumberTransformer {
                 ArithmeticExpr.Operator.XOR
         );
     }
+
+    /**
+     * 64-bit counterpart of {@link #getNumber}. Emits {@code (outcome ^ starting) ^ seed}
+     * over {@code long} operands (LXOR), reading the seed via the wide projection of
+     * {@code startingExpr}. Used only on the {@code seed.wide} path.
+     */
+    public Expr getNumberLong(
+            final long outcome,
+            final long starting,
+            final BasicBlock vertex,
+            final PredicateFlowGetter startingExpr) {
+        final long xored = outcome ^ starting;
+        final Expr allocExpr = new ConstantExpr(xored, Type.LONG_TYPE);
+        return new FakeArithmeticExpr(
+                allocExpr,
+                startingExpr.getWide(vertex),
+                ArithmeticExpr.Operator.XOR
+        );
+    }
 }

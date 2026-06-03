@@ -52,15 +52,27 @@ public class UnconditionalJumpRenderer extends AbstractInstructionRenderer<Uncon
         basicBlock.cfg.addEdge(new UnconditionalJumpEdge<>(block, basicBlock));
 
         // Add seed loader
-        this.addSeedLoader(
-                methodNode,
-                basicBlock,
-                targetSeeded,
-                0,
-                methodNode.getFlowPredicate(),
-                methodNode.getBlockPredicate(seededBlock),
-                "Unconditional"
-        );
+        if (methodNode.getSkidfuscator().getConfig().isSeedWide()) {
+            this.addSeedLoaderWide(
+                    methodNode,
+                    basicBlock,
+                    targetSeeded,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicateLong(seededBlock),
+                    "Unconditional"
+            );
+        } else {
+            this.addSeedLoader(
+                    methodNode,
+                    basicBlock,
+                    targetSeeded,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicate(seededBlock),
+                    "Unconditional"
+            );
+        }
 
         if (IntegerBlockPredicateRenderer.DEBUG) {
             final Local local1 = block.cfg.getLocals().get(block.cfg.getLocals().getMaxLocals() + 2);

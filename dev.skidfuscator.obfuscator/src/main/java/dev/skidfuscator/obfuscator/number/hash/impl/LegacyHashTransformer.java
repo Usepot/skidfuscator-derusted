@@ -82,6 +82,10 @@ public class LegacyHashTransformer implements HashTransformer {
 
     @Override
     public int hash(int starting) {
+        if (starting == 0) {
+            return 0;
+        }
+
         return (((starting * 31) >>> 4) % starting) ^ (starting >>> 16);
     }
 

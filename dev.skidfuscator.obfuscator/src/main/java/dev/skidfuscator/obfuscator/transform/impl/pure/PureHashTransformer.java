@@ -4,6 +4,7 @@ import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.event.EventPriority;
 import dev.skidfuscator.obfuscator.event.annotation.Listen;
 import dev.skidfuscator.obfuscator.event.impl.transform.skid.InitSkidTransformEvent;
+import dev.skidfuscator.obfuscator.number.hash.HashTransformer;
 import dev.skidfuscator.obfuscator.number.pure.VmHashTransformer;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 
@@ -17,6 +18,17 @@ public class PureHashTransformer extends AbstractTransformer {
         if (skidfuscator.getVmHasher() == null) {
             throw new IllegalStateException("VmHasher is null");
         }
-        skidfuscator.setVmHasher(new VmHashTransformer(skidfuscator));
+
+        final HashTransformer fallback = skidfuscator.getVmHasher();
+
+        try {
+            skidfuscator.setVmHasher(new VmHashTransformer(skidfuscator));
+        } catch (IllegalStateException e) {
+            Skidfuscator.LOGGER.warn(
+                    "Pure Encryption could not find a safe VM hash method; falling back to the default hasher: "
+                            + e.getMessage()
+            );
+            skidfuscator.setVmHasher(fallback);
+        }
     }
 }

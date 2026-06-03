@@ -572,6 +572,14 @@ public class Skidfuscator {
                     : ConfigFactory.parseFile(session.getConfig()).resolve();
             this.config = new DefaultSkidConfig(tsConfig, "");
 
+            if (config.isFlowConditionCompressingRequested() && !config.isSeedWide()) {
+                LOGGER.warn(
+                        "flowCondition.compressing is enabled but seed.wide is off; "
+                                + "guard compression needs the 64-bit seed and has been "
+                                + "force-disabled. Enable seed.wide to use it."
+                );
+            }
+
             progressBar.tick();
         }
 
@@ -833,6 +841,8 @@ public class Skidfuscator {
                     new InterproceduralTransformer(this),
                     new FlowFactoryMakerTransformer(this),
                     // ----- COMMUNITY -----
+                    // IntegerConditionHashTransformer is now fused into NumberTransformer
+                    // (condition hashing + number encryption run as one Post-phase pass).
                     new NumberTransformer(this),
                     new IntAnnotationEncryptionTransformer(this),
                     new StringAnnotationEncryptionTransformer(this),
@@ -892,6 +902,16 @@ public class Skidfuscator {
             classSource.getClassTree().verify();
         } catch (Exception ex) {
             final List<String> missingClasses = classSource.getClassTree().getMissingClasses();
+
+            if (missingClasses.isEmpty()) {
+                LOGGER.error(
+                        "Class tree verification failed, but no missing classes were reported. "
+                                + "This is not a library-resolution failure.",
+                        ex
+                );
+
+                throw new IllegalStateException("Class tree verification failed", ex);
+            }
 
             LOGGER.warn(
                     "Attempting to auto-resolve missing classes..."

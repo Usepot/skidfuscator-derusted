@@ -34,6 +34,14 @@ public class NumberManager {
                 .getNumber(outcome, starting, vertex, startingExpr);
     }
 
+    /**
+     * 64-bit counterpart of {@link #encrypt}. Only {@link XorNumberTransformer}
+     * supports long operands, so it is used directly. Seed.wide path only.
+     */
+    public static Expr encryptLong(final long outcome, final long starting, final BasicBlock vertex, final PredicateFlowGetter startingExpr) {
+        return new XorNumberTransformer().getNumberLong(outcome, starting, vertex, startingExpr);
+    }
+
     public static SkiddedHash hash(final Skidfuscator skidfuscator, final int starting, final BasicBlock vertex, final PredicateFlowGetter local) {
         // Todo add more transformers + randomization
         return HASHER[RandomUtil.nextInt(HASHER.length)].hash(starting, vertex, local);

@@ -32,6 +32,13 @@ exceptionReturn {
 
 flowCondition {
   enabled: true
+  # Guard compression: hash the full 64-bit flow seed through a non-injective
+  # (J)I pool so the baked guard constant no longer inverts to a unique seed.
+  # Requires seed.wide; force-disabled with a warning otherwise.
+  compressing {
+    enabled: false
+    salt: false
+  }
   exempt: []
 }
 
@@ -79,6 +86,12 @@ native: {
 
 driver: {
   enabled: false
+}
+
+# Thread the per-block flow seed as a 64-bit long instead of a 32-bit int.
+# Default off => byte-for-byte identical to the legacy int-seed pipeline.
+seed: {
+  wide: false
 }
 
 reference {

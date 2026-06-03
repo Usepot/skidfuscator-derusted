@@ -84,11 +84,26 @@ public class BasicConditionTransformer extends AbstractTransformer {
             cfg.addVertex(basicBlock);
 
             final HashTransformer transformer = skidfuscator.getVmHasher();
-            final SkiddedHash hash = transformer.hash(
-                    methodNode.getBlockPredicate(basicBlock),
-                    basicBlock,
-                    methodNode.getFlowPredicate().getGetter()
-            );
+            final SkiddedHash hash;
+            if (skidfuscator.getConfig().isFlowConditionCompressing()) {
+                /*
+                 * Compressing guard: hash the full 64-bit flow seed folded down to 32
+                 * bits, so the baked constant K no longer inverts to a unique seed
+                 * (~2^32 preimages). Reads the seed via the wide getter.
+                 */
+                hash = transformer.hashWide(
+                        methodNode.getBlockPredicateLong(basicBlock),
+                        basicBlock,
+                        methodNode.getFlowPredicate().getGetter(),
+                        skidfuscator.getConfig().isFlowConditionCompressingSalt()
+                );
+            } else {
+                hash = transformer.hash(
+                        methodNode.getBlockPredicate(basicBlock),
+                        basicBlock,
+                        methodNode.getFlowPredicate().getGetter()
+                );
+            }
 
             final ConditionalJumpStmt conditionalJumpStmt = new ConditionalJumpStmt(
                     hash.getExpr(),

@@ -61,10 +61,38 @@ public class VmHashTransformer implements HashTransformer {
 
     private JavaMethod selectedMethod;
     private ParameterMatch predicateParam;
+    /**
+     * When set, {@link #pin()} has frozen the current function: no call may
+     * reselect a new method until {@link #rotate()} releases it. This lets a caller
+     * take a matched build-time int + runtime expr from the SAME function, which a
+     * lossy masked comparison needs to stay correct.
+     */
+    private boolean pinned;
     private final Random random = new Random();
     private Object[] randomArgs;  // Store random values for consistency
     private InvocationUtil invocationUtil;
     private JavaMethod printStackTrace;
+
+    private static final int[] VALIDATION_INPUTS = {
+            0,
+            1,
+            -1,
+            31,
+            -31,
+            10,
+            64,
+            100,
+            1_000,
+            10_000,
+            100_000,
+            1_000_000_000,
+            999_999_999,
+            1_000_000_001,
+            Integer.MIN_VALUE,
+            Integer.MAX_VALUE
+    };
+
+    private static final int VALIDATION_RANDOM_INPUTS = 512;
 
     private void initializeRandomArgs() {
         Type[] types = Type.getArgumentTypes(selectedMethod.getDesc());
@@ -129,21 +157,56 @@ public class VmHashTransformer implements HashTransformer {
             }
 
             final List<ParameterMatch> paramList = new ArrayList<>(matches);
-            final ParameterMatch param = paramList.get(random.nextInt(paramList.size()));
-            final Object[] args = new Object[Type.getArgumentTypes(candidate.getDesc()).length];
 
-            /*
-             * Commit only once a fully valid selection is built, so a bad entry
-             * can never leave the transformer in a half-initialised state.
-             */
-            this.selectedMethod = candidate;
-            this.predicateParam = param;
-            this.randomArgs = args;
-            initializeRandomArgs();
-            return;
+            while (!paramList.isEmpty()) {
+                final ParameterMatch param = paramList.remove(random.nextInt(paramList.size()));
+                final Object[] args = new Object[Type.getArgumentTypes(candidate.getDesc()).length];
+
+                /*
+                 * Commit only once a fully valid selection is built, so a bad entry
+                 * can never leave the transformer in a half-initialised state.
+                 */
+                this.selectedMethod = candidate;
+                this.predicateParam = param;
+                this.randomArgs = args;
+                initializeRandomArgs();
+
+                if (isSelectionStable()) {
+                    return;
+                }
+            }
+
+            methodMatches.remove(candidate);
         }
 
         throw new IllegalStateException("No valid methods found for hash transformation");
+    }
+
+    private boolean isSelectionStable() {
+        final Set<Integer> outputs = new HashSet<>();
+
+        for (int validationInput : VALIDATION_INPUTS) {
+            try {
+                if (!outputs.add(invokeSelected(validationInput))) {
+                    return false;
+                }
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+
+        final Random validationRandom = new Random(0x51D5F00DL);
+        for (int i = 0; i < VALIDATION_RANDOM_INPUTS; i++) {
+            try {
+                if (!outputs.add(invokeSelected(validationRandom.nextInt()))) {
+                    return false;
+                }
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     @Override
@@ -156,7 +219,9 @@ public class VmHashTransformer implements HashTransformer {
             int hashed = hash(starting);
             Expr hashExpr = hash(vertex, caller);
 
-            this.selectRandomMethod();
+            if (!pinned) {
+                this.selectRandomMethod();
+            }
 
             return new SkiddedHash(hashExpr, hashed);
         } catch (VMException | PanicException e) {
@@ -194,6 +259,36 @@ public class VmHashTransformer implements HashTransformer {
             throw new IllegalStateException("No method selected for hashing");
         }
 
+        try {
+            return invokeSelected(starting);
+        } catch (VMException | PanicException e) {
+            //invocationUtil.invokeVoid(printStackTrace, Argument.reference(e.getOop()));
+            // While pinned we must not swap functions mid-sequence (it would break
+            // the build-time/runtime match), so surface the failure and let the
+            // caller fall back to an injective scheme for this site.
+            if (pinned) {
+                throw new IllegalStateException("Pinned hash function failed", e);
+            }
+            methodMatches.remove(selectedMethod);
+            selectRandomMethod();
+            //System.out.println("Reflushing... found " + selectedMethod.getName() + selectedMethod.getDesc() + " instead");
+            return hash(starting);
+        } catch (Exception e) {
+            if (pinned) {
+                throw new IllegalStateException("Pinned hash function failed", e);
+            }
+            methodMatches.remove(selectedMethod);
+            selectRandomMethod();
+            //System.out.println("Reflushing... found " + selectedMethod.getName() + selectedMethod.getDesc() + " instead");
+            return hash(starting);
+        }
+    }
+
+    private int invokeSelected(int starting) {
+        if (selectedMethod == null) {
+            throw new IllegalStateException("No method selected for hashing");
+        }
+
         final Argument[] args = new Argument[randomArgs.length];
 
         for (int i = 0; i < args.length; i++) {
@@ -204,20 +299,7 @@ public class VmHashTransformer implements HashTransformer {
             }
         }
 
-        try {
-            return (int) invocationUtil.invokeInt(selectedMethod, args);
-        } catch (VMException e) {
-            //invocationUtil.invokeVoid(printStackTrace, Argument.reference(e.getOop()));
-            methodMatches.remove(selectedMethod);
-            selectRandomMethod();
-            //System.out.println("Reflushing... found " + selectedMethod.getName() + selectedMethod.getDesc() + " instead");
-            return hash(starting);
-        } catch (Exception e) {
-            methodMatches.remove(selectedMethod);
-            selectRandomMethod();
-            //System.out.println("Reflushing... found " + selectedMethod.getName() + selectedMethod.getDesc() + " instead");
-            return hash(starting);
-        }
+        return (int) invocationUtil.invokeInt(selectedMethod, args);
     }
 
     @Override
@@ -246,6 +328,22 @@ public class VmHashTransformer implements HashTransformer {
         //System.out.println(String.format("Invoking with %s", invoke));
 
         return invoke;
+    }
+
+    @Override
+    public boolean supportsPinnedHashing() {
+        return true;
+    }
+
+    @Override
+    public void pin() {
+        this.pinned = true;
+    }
+
+    @Override
+    public void rotate() {
+        this.pinned = false;
+        this.selectRandomMethod();
     }
 
     private static final String[] ILLEGAL_PATTERNS = {

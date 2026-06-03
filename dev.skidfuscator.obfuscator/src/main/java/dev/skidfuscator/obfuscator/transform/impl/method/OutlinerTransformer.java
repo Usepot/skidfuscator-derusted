@@ -388,6 +388,12 @@ public class OutlinerTransformer extends AbstractTransformer {
                 || stackInputTypes == null || stackOutputTypes == null) {
             return null;
         }
+        if (hasAmbiguousReferenceType(inputLocalTypes)
+                || hasAmbiguousReferenceType(outputLocalTypes)
+                || hasAmbiguousReferenceType(stackInputTypes)
+                || hasAmbiguousReferenceType(stackOutputTypes)) {
+            return null;
+        }
         if (inputLocalTypes.size() + stackInputTypes.size() > maxInputs) {
             return null;
         }
@@ -472,6 +478,15 @@ public class OutlinerTransformer extends AbstractTransformer {
             specs.add(spec);
         }
         return specs;
+    }
+
+    private boolean hasAmbiguousReferenceType(final List<ValueSpec> specs) {
+        for (ValueSpec spec : specs) {
+            if (spec.type.getSort() == Type.OBJECT && OBJECT.equals(spec.type.getInternalName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ValueSpec toSpec(final BasicValue value) {

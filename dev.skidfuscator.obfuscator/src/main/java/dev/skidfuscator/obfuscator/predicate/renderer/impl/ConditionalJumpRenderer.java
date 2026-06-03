@@ -56,15 +56,27 @@ public class ConditionalJumpRenderer extends AbstractInstructionRenderer<Conditi
         basicBlock.cfg.addEdge(new ConditionalJumpEdge<>(block, basicBlock, Opcodes.IF_ICMPEQ));
 
         // Add seed loader
-        this.addSeedLoader(
-                methodNode,
-                basicBlock,
-                targetSeeded,
-                0,
-                methodNode.getFlowPredicate(),
-                methodNode.getBlockPredicate(seededBlock),
-                "Conditional"
-        );
+        if (methodNode.getSkidfuscator().getConfig().isSeedWide()) {
+            this.addSeedLoaderWide(
+                    methodNode,
+                    basicBlock,
+                    targetSeeded,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicateLong(seededBlock),
+                    "Conditional"
+            );
+        } else {
+            this.addSeedLoader(
+                    methodNode,
+                    basicBlock,
+                    targetSeeded,
+                    0,
+                    methodNode.getFlowPredicate(),
+                    methodNode.getBlockPredicate(seededBlock),
+                    "Conditional"
+            );
+        }
 
         if (IntegerBlockPredicateRenderer.DEBUG) {
             final Local local1 = basicBlock.cfg.getLocals().get(block.cfg.getLocals().getMaxLocals() + 2);

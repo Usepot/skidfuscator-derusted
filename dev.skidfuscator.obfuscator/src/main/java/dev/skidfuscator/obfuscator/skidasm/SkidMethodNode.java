@@ -62,6 +62,10 @@ public class SkidMethodNode extends MethodNode {
         return flowPredicate.get(block);
     }
 
+    public long getBlockPredicateLong(final SkidBlock block) {
+        return flowPredicate.getLong(block);
+    }
+
     public <T> Attribute<T> getAttribute(AttributeKey attributeKey) {
         return attributes.poll(attributeKey);
     }

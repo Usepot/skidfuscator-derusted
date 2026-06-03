@@ -79,15 +79,27 @@ public class ExceptionRenderer implements InstructionRenderer<ExceptionRange<Bas
             block.add(proxy);
 
             // Add a seed loader for the incoming block and convert it to the handler's
-            this.addSeedLoader(
-                    methodNode,
-                    block,
-                    handler,
-                    0,
-                    methodNode.getFlowPredicate(),
-                    methodNode.getBlockPredicate(internal),
-                    "Exception Range " + Arrays.toString(blockRange.getTypes().toArray())
-            );
+            if (methodNode.getSkidfuscator().getConfig().isSeedWide()) {
+                this.addSeedLoaderWide(
+                        methodNode,
+                        block,
+                        handler,
+                        0,
+                        methodNode.getFlowPredicate(),
+                        methodNode.getBlockPredicateLong(internal),
+                        "Exception Range " + Arrays.toString(blockRange.getTypes().toArray())
+                );
+            } else {
+                this.addSeedLoader(
+                        methodNode,
+                        block,
+                        handler,
+                        0,
+                        methodNode.getFlowPredicate(),
+                        methodNode.getBlockPredicate(internal),
+                        "Exception Range " + Arrays.toString(blockRange.getTypes().toArray())
+                );
+            }
 
             cfg.addEdge(edge);
 

@@ -14,12 +14,14 @@ import java.util.Map;
 public class IntegerBlockOpaquePredicate implements BlockOpaquePredicate {
     private final MethodNode methodNode;
     private final Map<BasicBlock, Integer> predicateMap;
+    private final Map<BasicBlock, Long> predicateLongMap;
     private PredicateFlowGetter getter;
     private PredicateFlowSetter setter;
 
     public IntegerBlockOpaquePredicate(MethodNode methodNode, PredicateFlowGetter getter) {
         this.methodNode = methodNode;
         this.predicateMap = new HashMap<>();
+        this.predicateLongMap = new HashMap<>();
         this.getter = getter;
     }
 
@@ -50,6 +52,15 @@ public class IntegerBlockOpaquePredicate implements BlockOpaquePredicate {
     @Override
     public int get(SkidBlock block) {
         return predicateMap.computeIfAbsent(block, e -> RandomUtil.nextInt());
+    }
+
+    @Override
+    public long getLong(SkidBlock block) {
+        // Low 32 bits == the existing int predicate (so the (int) projection is
+        // unchanged for legacy consumers); high 32 bits are fresh entropy. Stable
+        // per block via the cache so build-time constants match the runtime value.
+        return predicateLongMap.computeIfAbsent(block,
+                e -> (RandomUtil.nextLong() << 32) | (get(block) & 0xFFFFFFFFL));
     }
 
     @Override
