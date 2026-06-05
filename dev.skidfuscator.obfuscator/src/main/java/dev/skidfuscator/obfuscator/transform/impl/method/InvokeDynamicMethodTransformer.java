@@ -48,9 +48,22 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
     private static final String RELINK_DESC = "(Ljava/lang/invoke/MutableCallSite;Ljava/lang/invoke/MethodHandles$Lookup;ILjava/lang/String;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/Object;";
     private static final String DECRYPT_DESC = "(Ljava/lang/String;I)Ljava/lang/String;";
     private static final String DERIVE_KEY_DESC = "(II)I";
+    /*
+     * seed.wide variants: the decryption key is the full 64-bit threaded seed,
+     * so decrypt takes a long and the key derivation produces a long. Under
+     * seed.wide the int variants above would throw away the high 32 bits of seed
+     * entropy at the decrypt site, leaving the name decryptable from the low 32
+     * bits alone — exactly the leak seed.wide exists to close.
+     */
+    private static final String DECRYPT_DESC_WIDE = "(Ljava/lang/String;J)Ljava/lang/String;";
+    private static final String DERIVE_KEY_DESC_WIDE = "(JI)J";
     private static final String CALL_PREFIX = "skid$";
     private static final int SALT_HEX_LENGTH = 8;
     private static final int KEY_MIX_CONSTANT = 0x9E3779B9;
+    // 64-bit mixing constants for the seed.wide key schedule. Both are odd, so
+    // the multiply is invertible; the >>> 32 fold mixes high and low halves.
+    private static final long KEY_MIX_CONSTANT_LONG = 0x9E3779B97F4A7C15L;
+    private static final long KEY_MUL_CONSTANT_LONG = 0xFF51AFD7ED558CCDL;
     private static final String LOOKUP = "java/lang/invoke/MethodHandles$Lookup";
     private static final String METHOD_HANDLE = "java/lang/invoke/MethodHandle";
     private static final String METHOD_HANDLES = "java/lang/invoke/MethodHandles";
@@ -85,8 +98,11 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
             final org.objectweb.asm.tree.ClassNode classNode = wrapper.node;
             final Integer[] keys = createKeys();
-            final String decryptName = uniqueMethodName(classNode, "skid$decrypt$", DECRYPT_DESC);
-            final String deriveKeyName = uniqueMethodName(classNode, "skid$key$", DERIVE_KEY_DESC);
+            final boolean wide = skidfuscator.getConfig().isSeedWide();
+            final String decryptDesc = wide ? DECRYPT_DESC_WIDE : DECRYPT_DESC;
+            final String deriveKeyDesc = wide ? DERIVE_KEY_DESC_WIDE : DERIVE_KEY_DESC;
+            final String decryptName = uniqueMethodName(classNode, "skid$decrypt$", decryptDesc);
+            final String deriveKeyName = uniqueMethodName(classNode, "skid$key$", deriveKeyDesc);
 
             final String bootstrapName = uniqueMethodName(classNode, "skid$bootstrap$", BOOTSTRAP_DESC);
             final Handle bootstrapHandle = new Handle(
@@ -153,34 +169,39 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
                     /*
                      * If this call targets a threaded method, the opaque-predicate
-                     * seed is already pushed as the trailing int argument (see
-                     * InterproceduralTransformer). Bind the name/owner decryption
-                     * to a salted derivation of that live seed instead of embedding
-                     * a raw decryption key. Any call we cannot prove is threaded
-                     * falls back to a salted static scheme with no bootstrap key.
+                     * seed is already pushed as the trailing argument (an int, or a
+                     * long under seed.wide; see InterproceduralTransformer). Bind
+                     * the name/owner decryption to a salted derivation of that live
+                     * seed instead of embedding a raw decryption key. Under
+                     * seed.wide we carry the full 64-bit getPublicLong() so the key
+                     * depends on all 64 bits, not just the low 32. Any call we
+                     * cannot prove is threaded falls back to a salted static scheme
+                     * with no bootstrap key (key 0).
                      */
                     final SkidGroup threaded = threadedGroups.get(
                             methodInsn.owner + "." + methodInsn.name + methodInsn.desc
                     );
                     final InvokeDynamicInsnNode indy;
-                    if (threaded != null && descEndsWithInt(methodInsn.desc)) {
-                        final int seed = threaded.getPredicate().getPublic();
+                    if (threaded != null && descEndsWithSeed(methodInsn.desc)) {
+                        final long seed = wide
+                                ? threaded.getPredicate().getPublicLong()
+                                : threaded.getPredicate().getPublic();
                         indy = new InvokeDynamicInsnNode(
-                                encryptName(methodInsn.name, seed, keys),
+                                encryptName(methodInsn.name, seed, keys, wide),
                                 buildCallSiteDesc(methodInsn),
                                 seedBootstrapHandle,
                                 methodInsn.getOpcode(),
-                                encryptName(ownerBinaryName, seed, keys),
+                                encryptName(ownerBinaryName, seed, keys, wide),
                                 Type.getMethodType(methodInsn.desc)
                         );
                         usedSeed = true;
                     } else {
                         indy = new InvokeDynamicInsnNode(
-                                encryptName(methodInsn.name, 0, keys),
+                                encryptName(methodInsn.name, 0L, keys, wide),
                                 buildCallSiteDesc(methodInsn),
                                 bootstrapHandle,
                                 methodInsn.getOpcode(),
-                                encryptName(ownerBinaryName, 0, keys),
+                                encryptName(ownerBinaryName, 0L, keys, wide),
                                 Type.getMethodType(methodInsn.desc)
                         );
                         usedStatic = true;
@@ -195,14 +216,14 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                 if (classNode.version < Opcodes.V1_7) {
                     classNode.version = Opcodes.V1_7;
                 }
-                classNode.methods.add(createDeriveKeyMethod(deriveKeyName, keys));
-                classNode.methods.add(createDecryptMethod(classNode.name, decryptName, deriveKeyName, keys));
+                classNode.methods.add(createDeriveKeyMethod(deriveKeyName, keys, wide));
+                classNode.methods.add(createDecryptMethod(classNode.name, decryptName, deriveKeyName, keys, wide));
                 if (usedStatic) {
-                    classNode.methods.add(createBootstrapMethod(classNode.name, bootstrapName, decryptName));
+                    classNode.methods.add(createBootstrapMethod(classNode.name, bootstrapName, decryptName, wide));
                 }
                 if (usedSeed) {
                     classNode.methods.add(createSeedBootstrapMethod(classNode.name, seedBootstrapName, relinkName));
-                    classNode.methods.add(createRelinkMethod(classNode.name, relinkName, decryptName));
+                    classNode.methods.add(createRelinkMethod(classNode.name, relinkName, decryptName, wide));
                 }
             }
         }
@@ -232,9 +253,22 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         return map;
     }
 
-    private boolean descEndsWithInt(final String desc) {
+    /*
+     * The threaded opaque-predicate seed is always the trailing parameter of a
+     * threaded callee (InterproceduralTransformer inserts it at args.size()):
+     * an int normally, or a long under seed.wide. Accept either sort, otherwise
+     * the entire live-seed path is silently disabled under seed.wide and every
+     * call collapses to the static key=0 bootstrap. The relink helper reads the
+     * boxed seed as getPublic() (narrow, via intValue) or the full 64-bit
+     * getPublicLong() (wide, via longValue) to match the build-time key.
+     */
+    private boolean descEndsWithSeed(final String desc) {
         final Type[] args = Type.getArgumentTypes(desc);
-        return args.length > 0 && args[args.length - 1].getSort() == Type.INT;
+        if (args.length == 0) {
+            return false;
+        }
+        final int sort = args[args.length - 1].getSort();
+        return sort == Type.INT || sort == Type.LONG;
     }
 
     private Map<String, org.objectweb.asm.tree.ClassNode> loadApplicationClasses() {
@@ -352,7 +386,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         return Type.getMethodDescriptor(Type.getReturnType(methodInsn.desc), indyArgs);
     }
 
-    private MethodNode createBootstrapMethod(final String owner, final String name, final String decryptName) {
+    private MethodNode createBootstrapMethod(final String owner, final String name, final String decryptName, final boolean wide) {
         final MethodNode method = new MethodNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name,
@@ -368,16 +402,20 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         final LabelNode doneLabel = new LabelNode();
         final InsnList insns = method.instructions;
 
+        // Static fallback has no live seed: the decryption key is the constant 0,
+        // pushed as a long under seed.wide so it matches the wide decrypt(String,J).
+        final String decryptDesc = wide ? DECRYPT_DESC_WIDE : DECRYPT_DESC;
+
         insns.add(new VarInsnNode(Opcodes.ALOAD, 1));
-        insns.add(new InsnNode(Opcodes.ICONST_0));
-        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
+        insns.add(new InsnNode(wide ? Opcodes.LCONST_0 : Opcodes.ICONST_0));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, decryptDesc, false));
         insns.add(new VarInsnNode(Opcodes.ASTORE, 7));
 
         // Decrypt the owner's binary name and resolve it through the caller's
         // class loader, so the target class never appears as a Class constant.
         insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
-        insns.add(new InsnNode(Opcodes.ICONST_0));
-        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
+        insns.add(new InsnNode(wide ? Opcodes.LCONST_0 : Opcodes.ICONST_0));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, decryptDesc, false));
         insns.add(new InsnNode(Opcodes.ICONST_0));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
         insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, LOOKUP, "lookupClass", "()Ljava/lang/Class;", false));
@@ -544,7 +582,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
      * and forwards this first invocation. A tampered seed yields a garbage name
      * and resolution throws.
      */
-    private MethodNode createRelinkMethod(final String owner, final String name, final String decryptName) {
+    private MethodNode createRelinkMethod(final String owner, final String name, final String decryptName, final boolean wide) {
         final MethodNode method = new MethodNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name,
@@ -560,27 +598,38 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         final LabelNode doneLabel = new LabelNode();
         final InsnList insns = method.instructions;
 
-        // int seed = ((Integer) args[args.length - 1]).intValue();
+        // seed = ((Number) args[args.length - 1]).<int|long>Value();
+        // Number, not Integer: the boxed trailing arg is an Integer (narrow) or a
+        // Long (wide). Narrow takes intValue() == getPublic(); wide takes the full
+        // 64-bit longValue() == getPublicLong(), so the key uses all 64 bits. The
+        // wide long seed is parked in slots 12/13 to avoid renumbering 8-11.
+        final String decryptDesc = wide ? DECRYPT_DESC_WIDE : DECRYPT_DESC;
+        final int seedSlot = wide ? 12 : 7;
         insns.add(new VarInsnNode(Opcodes.ALOAD, 6));
         insns.add(new VarInsnNode(Opcodes.ALOAD, 6));
         insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
         insns.add(new InsnNode(Opcodes.ICONST_1));
         insns.add(new InsnNode(Opcodes.ISUB));
         insns.add(new InsnNode(Opcodes.AALOAD));
-        insns.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Integer"));
-        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
-        insns.add(new VarInsnNode(Opcodes.ISTORE, 7));
+        insns.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Number"));
+        if (wide) {
+            insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "longValue", "()J", false));
+            insns.add(new VarInsnNode(Opcodes.LSTORE, seedSlot));
+        } else {
+            insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "intValue", "()I", false));
+            insns.add(new VarInsnNode(Opcodes.ISTORE, seedSlot));
+        }
 
         // String decName = decrypt(encName, seed);
         insns.add(new VarInsnNode(Opcodes.ALOAD, 4));
-        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
-        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
+        insns.add(new VarInsnNode(wide ? Opcodes.LLOAD : Opcodes.ILOAD, seedSlot));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, decryptDesc, false));
         insns.add(new VarInsnNode(Opcodes.ASTORE, 8));
 
         // String decOwner = decrypt(encOwner, seed);
         insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
-        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
-        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, DECRYPT_DESC, false));
+        insns.add(new VarInsnNode(wide ? Opcodes.LLOAD : Opcodes.ILOAD, seedSlot));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, decryptName, decryptDesc, false));
         insns.add(new VarInsnNode(Opcodes.ASTORE, 9));
 
         // Class<?> target = Class.forName(decOwner, false, caller.lookupClass().getClassLoader());
@@ -658,12 +707,16 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, METHOD_HANDLE, "invokeWithArguments", "([Ljava/lang/Object;)Ljava/lang/Object;", false));
         insns.add(new InsnNode(Opcodes.ARETURN));
 
-        method.maxLocals = 12;
+        // Wide parks the long seed in slots 12/13 (see seedSlot above).
+        method.maxLocals = wide ? 14 : 12;
         method.maxStack = 6;
         return method;
     }
 
-    private MethodNode createDeriveKeyMethod(final String name, final Integer[] keys) {
+    private MethodNode createDeriveKeyMethod(final String name, final Integer[] keys, final boolean wide) {
+        if (wide) {
+            return createDeriveKeyMethodWide(name, keys);
+        }
         final MethodNode method = new MethodNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name,
@@ -730,10 +783,99 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         return method;
     }
 
+    /*
+     * seed.wide key schedule, desc (JI)J. Mirrors deriveNameKeyLong exactly:
+     *   long mixed = key ^ (salt & 0xFFFFFFFFL) ^ KEY_MIX_CONSTANT_LONG;
+     *   for (b : keys) { mixed ^= b & 0xFF; mixed *= MUL; mixed ^= mixed >>> 32; }
+     * Locals: key J@0, salt I@2, mixed J@3, keys[] @5, i @6.
+     */
+    private MethodNode createDeriveKeyMethodWide(final String name, final Integer[] keys) {
+        final MethodNode method = new MethodNode(
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                name,
+                DERIVE_KEY_DESC_WIDE,
+                null,
+                null
+        );
+
+        final LabelNode loop = new LabelNode();
+        final LabelNode end = new LabelNode();
+        final InsnList insns = method.instructions;
+
+        // long mixed = key ^ ((long) salt & 0xFFFFFFFFL) ^ KEY_MIX_CONSTANT_LONG;
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 0));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 2));
+        insns.add(new InsnNode(Opcodes.I2L));
+        insns.add(new LdcInsnNode(0xFFFFFFFFL));
+        insns.add(new InsnNode(Opcodes.LAND));
+        insns.add(new InsnNode(Opcodes.LXOR));
+        insns.add(new LdcInsnNode(KEY_MIX_CONSTANT_LONG));
+        insns.add(new InsnNode(Opcodes.LXOR));
+        insns.add(new VarInsnNode(Opcodes.LSTORE, 3));
+
+        pushInt(insns, keys.length);
+        insns.add(new IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
+        for (int i = 0; i < keys.length; i++) {
+            insns.add(new InsnNode(Opcodes.DUP));
+            pushInt(insns, i);
+            pushInt(insns, keys[i]);
+            insns.add(new InsnNode(Opcodes.BASTORE));
+        }
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 5));
+
+        insns.add(new InsnNode(Opcodes.ICONST_0));
+        insns.add(new VarInsnNode(Opcodes.ISTORE, 6));
+        insns.add(loop);
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 6));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
+        insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        insns.add(new JumpInsnNode(Opcodes.IF_ICMPGE, end));
+
+        // mixed ^= keys[i] & 0xFF;
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 6));
+        insns.add(new InsnNode(Opcodes.BALOAD));
+        pushInt(insns, 0xFF);
+        insns.add(new InsnNode(Opcodes.IAND));
+        insns.add(new InsnNode(Opcodes.I2L));
+        insns.add(new InsnNode(Opcodes.LXOR));
+        insns.add(new VarInsnNode(Opcodes.LSTORE, 3));
+
+        // mixed *= KEY_MUL_CONSTANT_LONG;
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        insns.add(new LdcInsnNode(KEY_MUL_CONSTANT_LONG));
+        insns.add(new InsnNode(Opcodes.LMUL));
+        insns.add(new VarInsnNode(Opcodes.LSTORE, 3));
+
+        // mixed ^= mixed >>> 32;
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        pushInt(insns, 32);
+        insns.add(new InsnNode(Opcodes.LUSHR));
+        insns.add(new InsnNode(Opcodes.LXOR));
+        insns.add(new VarInsnNode(Opcodes.LSTORE, 3));
+
+        insns.add(new IincInsnNode(6, 1));
+        insns.add(new JumpInsnNode(Opcodes.GOTO, loop));
+
+        insns.add(end);
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 3));
+        insns.add(new InsnNode(Opcodes.LRETURN));
+
+        method.maxLocals = 7;
+        method.maxStack = 6;
+        return method;
+    }
+
     private MethodNode createDecryptMethod(final String owner,
                                            final String name,
                                            final String deriveKeyName,
-                                           final Integer[] keys) {
+                                           final Integer[] keys,
+                                           final boolean wide) {
+        if (wide) {
+            return createDecryptMethodWide(owner, name, deriveKeyName, keys);
+        }
         final MethodNode method = new MethodNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                 name,
@@ -867,6 +1009,155 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         return method;
     }
 
+    /*
+     * seed.wide decrypt, desc (Ljava/lang/String;J)Ljava/lang/String;. Identical
+     * to createDecryptMethod except the key is a long: it occupies slots 1/2, so
+     * every body local shifts up by one (data 3, decodeIdx 4, keyBytes 5, keys 6,
+     * xorIdx 7, salt 8), the key is loaded with LLOAD and the derived key is
+     * stringified with Long.toString so all 64 bits feed the XOR keystream.
+     */
+    private MethodNode createDecryptMethodWide(final String owner,
+                                               final String name,
+                                               final String deriveKeyName,
+                                               final Integer[] keys) {
+        final MethodNode method = new MethodNode(
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+                name,
+                DECRYPT_DESC_WIDE,
+                null,
+                null
+        );
+
+        final LabelNode decodeLoop = new LabelNode();
+        final LabelNode decodeEnd = new LabelNode();
+        final LabelNode xorLoop = new LabelNode();
+        final LabelNode xorEnd = new LabelNode();
+        final InsnList insns = method.instructions;
+
+        // enc = enc.substring(CALL_PREFIX.length());
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        pushInt(insns, CALL_PREFIX.length());
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(I)Ljava/lang/String;", false));
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 0));
+
+        // int salt = (int) Long.parseLong(enc.substring(0, SALT_HEX_LENGTH), 16); -> slot 8
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        insns.add(new InsnNode(Opcodes.ICONST_0));
+        pushInt(insns, SALT_HEX_LENGTH);
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(II)Ljava/lang/String;", false));
+        pushInt(insns, 16);
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Long", "parseLong", "(Ljava/lang/String;I)J", false));
+        insns.add(new InsnNode(Opcodes.L2I));
+        insns.add(new VarInsnNode(Opcodes.ISTORE, 8));
+
+        // enc = enc.substring(SALT_HEX_LENGTH);
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        pushInt(insns, SALT_HEX_LENGTH);
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(I)Ljava/lang/String;", false));
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 0));
+
+        // byte[] data = new byte[enc.length() / 2]; -> slot 3
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false));
+        pushInt(insns, 2);
+        insns.add(new InsnNode(Opcodes.IDIV));
+        insns.add(new IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 3));
+
+        insns.add(new InsnNode(Opcodes.ICONST_0));
+        insns.add(new VarInsnNode(Opcodes.ISTORE, 4));
+        insns.add(decodeLoop);
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        insns.add(new JumpInsnNode(Opcodes.IF_ICMPGE, decodeEnd));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 4));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 4));
+        pushInt(insns, 2);
+        insns.add(new InsnNode(Opcodes.IMUL));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 4));
+        pushInt(insns, 2);
+        insns.add(new InsnNode(Opcodes.IMUL));
+        pushInt(insns, 2);
+        insns.add(new InsnNode(Opcodes.IADD));
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(II)Ljava/lang/String;", false));
+        pushInt(insns, 16);
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Integer", "parseInt", "(Ljava/lang/String;I)I", false));
+        insns.add(new InsnNode(Opcodes.BASTORE));
+        insns.add(new IincInsnNode(4, 1));
+        insns.add(new JumpInsnNode(Opcodes.GOTO, decodeLoop));
+
+        insns.add(decodeEnd);
+        // byte[] keyBytes = Long.toString(deriveKey(key, salt)).getBytes(UTF_8); -> slot 5
+        insns.add(new VarInsnNode(Opcodes.LLOAD, 1));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 8));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, owner, deriveKeyName, DERIVE_KEY_DESC_WIDE, false));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false));
+        insns.add(new FieldInsnNode(Opcodes.GETSTATIC, STANDARD_CHARSETS, "UTF_8", "Ljava/nio/charset/Charset;"));
+        insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/String", "getBytes", "(Ljava/nio/charset/Charset;)[B", false));
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 5));
+
+        pushInt(insns, keys.length);
+        insns.add(new IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
+        for (int i = 0; i < keys.length; i++) {
+            insns.add(new InsnNode(Opcodes.DUP));
+            pushInt(insns, i);
+            pushInt(insns, keys[i]);
+            insns.add(new InsnNode(Opcodes.BASTORE));
+        }
+        insns.add(new VarInsnNode(Opcodes.ASTORE, 6));
+
+        insns.add(new InsnNode(Opcodes.ICONST_0));
+        insns.add(new VarInsnNode(Opcodes.ISTORE, 7));
+        insns.add(xorLoop);
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        insns.add(new JumpInsnNode(Opcodes.IF_ICMPGE, xorEnd));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
+        insns.add(new InsnNode(Opcodes.DUP2));
+        insns.add(new InsnNode(Opcodes.BALOAD));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 5));
+        insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        insns.add(new InsnNode(Opcodes.IREM));
+        insns.add(new InsnNode(Opcodes.BALOAD));
+        insns.add(new InsnNode(Opcodes.IXOR));
+        insns.add(new InsnNode(Opcodes.I2B));
+        insns.add(new InsnNode(Opcodes.BASTORE));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
+        insns.add(new InsnNode(Opcodes.DUP2));
+        insns.add(new InsnNode(Opcodes.BALOAD));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 6));
+        insns.add(new VarInsnNode(Opcodes.ILOAD, 7));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 6));
+        insns.add(new InsnNode(Opcodes.ARRAYLENGTH));
+        insns.add(new InsnNode(Opcodes.IREM));
+        insns.add(new InsnNode(Opcodes.BALOAD));
+        insns.add(new InsnNode(Opcodes.IXOR));
+        insns.add(new InsnNode(Opcodes.I2B));
+        insns.add(new InsnNode(Opcodes.BASTORE));
+        insns.add(new IincInsnNode(7, 1));
+        insns.add(new JumpInsnNode(Opcodes.GOTO, xorLoop));
+
+        insns.add(xorEnd);
+        insns.add(new TypeInsnNode(Opcodes.NEW, "java/lang/String"));
+        insns.add(new InsnNode(Opcodes.DUP));
+        insns.add(new VarInsnNode(Opcodes.ALOAD, 3));
+        insns.add(new FieldInsnNode(Opcodes.GETSTATIC, STANDARD_CHARSETS, "UTF_8", "Ljava/nio/charset/Charset;"));
+        insns.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, "java/lang/String", "<init>", "([BLjava/nio/charset/Charset;)V", false));
+        insns.add(new InsnNode(Opcodes.ARETURN));
+
+        method.maxLocals = 9;
+        method.maxStack = Math.max(8, keys.length == 0 ? 8 : 10);
+        return method;
+    }
+
     private String uniqueMethodName(final org.objectweb.asm.tree.ClassNode classNode, final String prefix, final String desc) {
         String name;
         do {
@@ -903,11 +1194,34 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
         return mixed;
     }
 
-    private String encryptName(final String name, final int key, final Integer[] keys) {
+    /*
+     * Build-time twin of createDeriveKeyMethodWide (skid$key, desc (JI)J). MUST
+     * stay bit-identical to that bytecode or the runtime decrypt produces a
+     * different keystream and resolution fails.
+     */
+    private long deriveNameKeyLong(final long key, final int salt, final Integer[] keys) {
+        long mixed = key ^ (salt & 0xFFFFFFFFL) ^ KEY_MIX_CONSTANT_LONG;
+        for (int value : keys) {
+            mixed ^= value & 0xFF;
+            mixed *= KEY_MUL_CONSTANT_LONG;
+            mixed ^= mixed >>> 32;
+        }
+        return mixed;
+    }
+
+    /*
+     * Narrow (wide=false): the int key path, byte-for-byte the original scheme
+     * (key is the int seed / 0). Wide: the full 64-bit key path, so an attacker
+     * must recover all 64 bits of the threaded seed, not just the low 32. The
+     * salt stays 32-bit on the wire (it is embedded plaintext and not secret).
+     */
+    private String encryptName(final String name, final long key, final Integer[] keys, final boolean wide) {
         final int salt = ThreadLocalRandom.current().nextInt();
-        final int mixedKey = deriveNameKey(key, salt, keys);
+        final byte[] keyBytes = (wide
+                ? Long.toString(deriveNameKeyLong(key, salt, keys))
+                : Integer.toString(deriveNameKey((int) key, salt, keys)))
+                .getBytes(StandardCharsets.UTF_8);
         final byte[] encrypted = name.getBytes(StandardCharsets.UTF_8);
-        final byte[] keyBytes = Integer.toString(mixedKey).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < encrypted.length; i++) {
             encrypted[i] ^= keyBytes[i % keyBytes.length];

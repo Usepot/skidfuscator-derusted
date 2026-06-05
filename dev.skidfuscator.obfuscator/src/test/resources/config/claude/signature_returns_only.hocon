@@ -1,0 +1,16 @@
+# Return wrapping in isolation: arguments are NOT packed (the parameter list is
+# kept intact), only the return value is wrapped into a byte[]/Object[] carrier,
+# with the threaded seed appended as the last slot. This exercises the
+# returns-only path where the descriptor keeps its original arguments and the
+# seed is read directly from the incoming trailing int parameter (no arg-unpack
+# prologue restoring it first).
+signatureObfuscation {
+    enabled = true
+    arguments = false
+    returns = true
+    returnThreadKey = true
+}
+
+stringEncryption {
+    enabled = false
+}

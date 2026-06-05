@@ -434,8 +434,31 @@ public class TransformerPanel extends JPanel {
                 false, "Risky", Collections.emptyList());
 
         addSection(host, "signatureObfuscation", "Signature Obfuscation",
-                "Rewrites internally-called method signatures to byte[] plus Object[] carrier arguments. Off by default.",
-                false, "Risky", Collections.emptyList());
+                "Rewrites internally-called method signatures to byte[] plus Object[] carriers. Arguments are packed "
+                        + "into carrier parameters and/or the return value is wrapped into a byte[]/Object[] carrier. Off by default.",
+                false, "Risky",
+                Arrays.asList(
+                        TransformerOptionDefinition.builder()
+                                .key("arguments").label("Pack arguments")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(true)
+                                .description("Collapse the parameter list into (byte[], Object[]) carriers: primitives "
+                                        + "are packed into the byte array, references into the object array. On by default.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("returns").label("Wrap returns")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Wrap the return value into a carrier array: primitive returns become byte[], "
+                                        + "reference/array returns become Object[]. Callers unpack the original value transparently.")
+                                .build(),
+                        TransformerOptionDefinition.builder()
+                                .key("returnThreadKey").label("Thread key in return")
+                                .type(TransformerOptionType.BOOLEAN)
+                                .defaultValue(false)
+                                .description("Append the method's threaded flow seed as the last slot of the wrapped return "
+                                        + "array. Carry-only: callers ignore it. Requires Wrap returns.")
+                                .build()));
 
         addSection(host, "methodDispatch", "Method Dispatch",
                 "Funnels eligible method calls through a per-class (byte[], Object[]) dispatcher that lookupswitches on a hashed signature key, hiding the real target behind the switch. Off by default.",

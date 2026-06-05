@@ -48,6 +48,7 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
 
     @Override
     public void visitPre(SkidClassNode node) {
+        final boolean seedWide = node.getSkidfuscator().getConfig().isSeedWide();
         final Map<String, Pair<String, String>> fieldRemapMap = new HashMap<>();
 
         /*
@@ -179,6 +180,20 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
              */
             final Set<InjectMethodTag> tags = new HashSet<>(Arrays.asList(injectMethod.tags())
             );
+
+            /*
+             * Mode gating. Skip BEFORE any RNG draw / name assignment so the
+             * narrow (seed.wide OFF) build is byte-for-byte identical to the
+             * pre-wide baseline: the WIDE_ONLY method is never visited for a
+             * random name, so the RandomUtil sequence is unchanged.
+             */
+            if (tags.contains(InjectMethodTag.WIDE_ONLY) && !seedWide) {
+                continue;
+            }
+            if (tags.contains(InjectMethodTag.NARROW_ONLY) && seedWide) {
+                continue;
+            }
+
             if (tags.contains(InjectMethodTag.RANDOM_NAME)) {
                 final String randomName = RandomUtil.randomAlphabeticalString(10);
                 methodNode.node.name = randomName;
@@ -316,12 +331,34 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
         );
     }
 
+    protected boolean isSeedWide(final SkidMethodNode node) {
+        return node.getSkidfuscator().getConfig().isSeedWide();
+    }
+
     protected int getThreadedStringSeed(final SkidMethodNode node, final SkidBlock block) {
         return node.getBlockPredicate(block);
     }
 
     protected Expr getThreadedStringSeedExpr(final SkidMethodNode node, final SkidBlock block) {
         return node.getFlowPredicate().getGetter().get(block);
+    }
+
+    /**
+     * Build-time 64-bit string key ({@code seed.wide}). Returns the full
+     * {@code long} block predicate {@code (high << 32) | (L & 0xFFFFFFFF)} so
+     * the high 32 bits of fresh entropy participate in the key, not just {@code L}.
+     */
+    protected long getThreadedStringSeedLong(final SkidMethodNode node, final SkidBlock block) {
+        return node.getBlockPredicateLong(block);
+    }
+
+    /**
+     * Runtime 64-bit string-key expression ({@code seed.wide}). Reads the wide
+     * projection of the threaded flow local via {@link PredicateFlowGetter#getWide};
+     * on the live path this equals {@link #getThreadedStringSeedLong}.
+     */
+    protected Expr getThreadedStringSeedExprWide(final SkidMethodNode node, final SkidBlock block) {
+        return node.getFlowPredicate().getGetter().getWide(block);
     }
 
     protected static <T> Expr generateArrayGenerator(final SkidClassNode node, final T[] array, final Type elementType) {

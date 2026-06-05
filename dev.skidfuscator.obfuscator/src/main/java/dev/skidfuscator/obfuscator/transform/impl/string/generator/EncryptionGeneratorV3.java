@@ -30,7 +30,18 @@ public interface EncryptionGeneratorV3 {
     }
 
     enum InjectMethodTag {
-        RANDOM_NAME
+        RANDOM_NAME,
+        /**
+         * Inject this method only when {@code seed.wide} is ON. Used for the
+         * 64-bit ({@code long}) decryptor variants so the narrow build stays
+         * byte-for-byte identical (the wide method is never injected/named).
+         */
+        WIDE_ONLY,
+        /**
+         * Inject this method only when {@code seed.wide} is OFF. Tags the legacy
+         * 32-bit decryptor so it is dropped from the wide build (no dead method).
+         */
+        NARROW_ONLY
     }
 
     @Retention(RetentionPolicy.RUNTIME)

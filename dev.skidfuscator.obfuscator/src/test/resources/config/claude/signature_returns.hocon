@@ -1,0 +1,19 @@
+# SignatureObfuscationTransformer with the return-wrapping mode enabled on top
+# of the default flow pipeline (so methods are flow-threaded and carry a trailing
+# int seed, exercising the returnThreadKey path). Arguments are packed too, so a
+# single rewrite covers (byte[], Object[]) carrier params AND a byte[]/Object[]
+# carrier return. String encryption is off to isolate the signature transform.
+#
+# DispatchSignaturesClazz round-trips every primitive width, references, arrays,
+# a void method (left untouched) and mixed signatures; any verifier error or a
+# divergent value throws and fails the test.
+signatureObfuscation {
+    enabled = true
+    arguments = true
+    returns = true
+    returnThreadKey = true
+}
+
+stringEncryption {
+    enabled = false
+}

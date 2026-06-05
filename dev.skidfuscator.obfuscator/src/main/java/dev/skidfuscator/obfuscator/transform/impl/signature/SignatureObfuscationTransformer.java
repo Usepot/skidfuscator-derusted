@@ -69,17 +69,40 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         final Set<MethodKey> handleReferences = collectHandleReferences(classes);
         final Map<MethodKey, Integer> internalCallCounts = collectInternalCalls(classes);
 
-        Map<MethodKey, String> candidates = new LinkedHashMap<>();
+        /*
+         * Two orthogonal, independently-toggleable rewrites share the same
+         * candidate analysis, collision/size guards and callsite pass:
+         *   - arguments: pack the parameter list into (byte[], Object[]).
+         *   - returns:   wrap the return value into byte[] (primitive returns)
+         *                or Object[] (reference/array returns).
+         * With returnThreadKey, the method's threaded flow seed (the trailing
+         * int parameter added by interprocedural threading) is appended as the
+         * LAST array slot. Callers are carry-only: they read the real value from
+         * the FRONT of the array and never touch the key slot, so the key is a
+         * pure callee-side emission and the caller-side unpack is identical
+         * whether or not a key is present.
+         */
+        final boolean obfuscateArgs = getConfig().getBoolean("arguments", true);
+        final boolean obfuscateReturns = getConfig().getBoolean("returns", false);
+        final boolean threadReturnKey = obfuscateReturns && getConfig().getBoolean("returnThreadKey", false);
+
+        if (!obfuscateArgs && !obfuscateReturns) {
+            return;
+        }
+
+        Map<MethodKey, Candidate> candidates = new LinkedHashMap<>();
         for (Map.Entry<MethodKey, MethodNode> entry : methods.entrySet()) {
             final MethodKey key = entry.getKey();
             final MethodNode method = entry.getValue();
 
-            if (!isCandidate(key, method, classes, handleReferences, internalCallCounts)) {
+            final Candidate candidate = buildCandidate(key, method, classes, handleReferences,
+                    internalCallCounts, obfuscateArgs, obfuscateReturns, threadReturnKey);
+            if (candidate == null) {
                 skip();
                 continue;
             }
 
-            candidates.put(key, buildObfuscatedDesc(method.desc));
+            candidates.put(key, candidate);
         }
 
         removeDescriptorCollisions(classes, candidates);
@@ -91,16 +114,16 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
 
         rewriteCallsites(classes, candidates);
 
-        for (Map.Entry<MethodKey, String> entry : candidates.entrySet()) {
+        for (Map.Entry<MethodKey, Candidate> entry : candidates.entrySet()) {
             final MethodNode method = methods.get(entry.getKey());
+            final Candidate candidate = entry.getValue();
             final String oldDesc = method.desc;
-            final String newDesc = entry.getValue();
 
             if ((method.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0) {
-                addUnpackPrologue(method, oldDesc);
+                rewriteMethodBody(method, oldDesc, candidate);
             }
 
-            method.desc = newDesc;
+            method.desc = candidate.newDesc;
             method.signature = null;
             method.parameters = null;
             method.visibleParameterAnnotations = null;
@@ -108,6 +131,55 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             method.localVariables = null;
             success();
         }
+    }
+
+    /**
+     * Rewrites the body of a concrete candidate to match its new descriptor:
+     * restores packed arguments (if {@code rewriteArgs}), captures the threaded
+     * seed (if {@code threadKey}) and converts every value-return into an array
+     * carrier (if {@code rewriteReturn}). Return sites are rewritten before the
+     * entry prologue is prepended so the entry insertion never disturbs them.
+     */
+    private void rewriteMethodBody(final MethodNode method, final String oldDesc, final Candidate candidate) {
+        final boolean isStatic = (method.access & Opcodes.ACC_STATIC) != 0;
+        final int base = isStatic ? 0 : 1;
+        method.maxLocals = Math.max(method.maxLocals, computeLocalLimit(method));
+        nextScratchLocal = method.maxLocals;
+        /*
+         * When arguments are packed the new descriptor's (byte[], Object[])
+         * parameters occupy base..base+1. If the original body used fewer slots
+         * than that (e.g. a single int arg), scratch must still start above the
+         * new parameters so the prologue does not clobber the Object[] carrier
+         * before it is copied out.
+         */
+        if (candidate.rewriteArgs) {
+            nextScratchLocal = Math.max(nextScratchLocal, base + 2);
+        }
+
+        int seedLocal = -1;
+        if (candidate.threadKey) {
+            seedLocal = nextScratchLocal++;
+        }
+
+        if (candidate.rewriteReturn) {
+            emitReturnRewrites(method, candidate.returnType, candidate.threadKey, seedLocal);
+        }
+
+        final InsnList entry = new InsnList();
+        if (candidate.rewriteArgs) {
+            appendUnpackPrologue(entry, oldDesc, isStatic);
+        }
+        if (candidate.threadKey) {
+            final int seedParam = seedParamLocal(oldDesc, isStatic);
+            entry.add(new VarInsnNode(Opcodes.ILOAD, seedParam));
+            entry.add(new VarInsnNode(Opcodes.ISTORE, seedLocal));
+        }
+        if (entry.size() > 0) {
+            method.instructions.insert(entry);
+        }
+
+        method.maxLocals = Math.max(method.maxLocals, nextScratchLocal);
+        method.maxStack = Math.max(method.maxStack, 8);
     }
 
     private Map<String, org.objectweb.asm.tree.ClassNode> loadApplicationClasses() {
@@ -293,43 +365,57 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         }
     }
 
-    private boolean isCandidate(final MethodKey key,
-                                final MethodNode method,
-                                final Map<String, org.objectweb.asm.tree.ClassNode> classes,
-                                final Set<MethodKey> handleReferences,
-                                final Map<MethodKey, Integer> internalCallCounts) {
+    /**
+     * Builds the {@link Candidate} for a method, or {@code null} if it is not
+     * eligible for either rewrite. Argument packing needs at least one argument;
+     * return wrapping needs a non-void return that is not already {@code Object[]}
+     * (which would be indistinguishable from an unwrapped value at the callsite).
+     */
+    private Candidate buildCandidate(final MethodKey key,
+                                     final MethodNode method,
+                                     final Map<String, org.objectweb.asm.tree.ClassNode> classes,
+                                     final Set<MethodKey> handleReferences,
+                                     final Map<MethodKey, Integer> internalCallCounts,
+                                     final boolean obfuscateArgs,
+                                     final boolean obfuscateReturns,
+                                     final boolean threadReturnKey) {
         if (!internalCallCounts.containsKey(key)) {
-            return false;
+            return null;
         }
 
         if (handleReferences.contains(key)) {
-            return false;
+            return null;
         }
 
         if ("<init>".equals(method.name) || "<clinit>".equals(method.name)) {
-            return false;
+            return null;
         }
 
         if ("main".equals(method.name) && "([Ljava/lang/String;)V".equals(method.desc)
                 && (method.access & Opcodes.ACC_STATIC) != 0) {
-            return false;
+            return null;
         }
 
         if ((method.access & (Opcodes.ACC_NATIVE | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE | Opcodes.ACC_ABSTRACT)) != 0) {
-            return false;
+            return null;
         }
 
         if (isLargeRewriteMethod(method)) {
-            return false;
+            return null;
         }
 
-        if (Type.getArgumentTypes(method.desc).length == 0) {
-            return false;
+        final Type[] argumentTypes = Type.getArgumentTypes(method.desc);
+        final Type returnType = Type.getReturnType(method.desc);
+
+        final boolean rewriteArgs = obfuscateArgs && argumentTypes.length > 0;
+        final boolean rewriteReturn = obfuscateReturns && isWrappableReturn(returnType);
+        if (!rewriteArgs && !rewriteReturn) {
+            return null;
         }
 
-        final String newDesc = buildObfuscatedDesc(method.desc);
+        final String newDesc = buildNewDesc(method.desc, rewriteArgs, rewriteReturn);
         if (method.desc.equals(newDesc)) {
-            return false;
+            return null;
         }
 
         /*
@@ -341,10 +427,40 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
          */
         final boolean overridable = (method.access & (Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)) == 0;
         if (overridable && isOverriddenInHierarchy(key)) {
-            return false;
+            return null;
         }
 
-        return !overridesExternalContract(classes, key, method);
+        if (overridesExternalContract(classes, key, method)) {
+            return null;
+        }
+
+        /*
+         * The threaded flow seed is the trailing int parameter that
+         * interprocedural threading appends to a threaded method (the same
+         * value MethodMergeTransformer reads as the public seed). Only such
+         * methods can echo a key; the caller is carry-only so an inexact value
+         * never affects runtime, but the parameter must genuinely be an int so
+         * the entry-capture ILOAD stays verifier-valid.
+         */
+        final boolean threadKey = rewriteReturn && threadReturnKey
+                && argumentTypes.length > 0
+                && argumentTypes[argumentTypes.length - 1].getSort() == Type.INT;
+
+        return new Candidate(newDesc, rewriteArgs, rewriteReturn, returnType, threadKey);
+    }
+
+    /**
+     * A return type can be wrapped unless it is void (nothing to carry) or
+     * already exactly {@code Object[]} (the wrapped descriptor would equal the
+     * original, so a callsite could not tell a wrapped value from an unwrapped
+     * one). Every other reference/array type maps to {@code Object[]} and every
+     * primitive maps to {@code byte[]}, both distinct from the original.
+     */
+    private boolean isWrappableReturn(final Type returnType) {
+        if (returnType.getSort() == Type.VOID) {
+            return false;
+        }
+        return !OBJECT_ARRAY_DESC.equals(returnType.getDescriptor());
     }
 
     private boolean overridesExternalContract(final Map<String, org.objectweb.asm.tree.ClassNode> appClasses,
@@ -428,7 +544,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     }
 
     private void removeDescriptorCollisions(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
-                                            final Map<MethodKey, String> candidates) {
+                                            final Map<MethodKey, Candidate> candidates) {
         final Set<MethodKey> rejected = new HashSet<>();
 
         for (org.objectweb.asm.tree.ClassNode classNode : classes.values()) {
@@ -437,11 +553,11 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
 
             for (MethodNode method : classNode.methods) {
                 final MethodKey key = new MethodKey(classNode.name, method.name, method.desc);
-                final String newDesc = candidates.get(key);
-                if (newDesc == null) {
+                final Candidate candidate = candidates.get(key);
+                if (candidate == null) {
                     existingSlots.add(method.name + method.desc);
                 } else {
-                    final String slot = method.name + newDesc;
+                    final String slot = method.name + candidate.newDesc;
                     transformedSlots.computeIfAbsent(slot, ignored -> new ArrayList<>()).add(key);
                 }
             }
@@ -460,7 +576,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     }
 
     private void removeSizeRiskyCallers(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
-                                        final Map<MethodKey, String> candidates) {
+                                        final Map<MethodKey, Candidate> candidates) {
         final Set<MethodKey> rejected = new HashSet<>();
 
         for (org.objectweb.asm.tree.ClassNode classNode : classes.values()) {
@@ -511,7 +627,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     }
 
     private void rewriteCallsites(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
-                                  final Map<MethodKey, String> candidates) {
+                                  final Map<MethodKey, Candidate> candidates) {
         for (org.objectweb.asm.tree.ClassNode classNode : classes.values()) {
             for (MethodNode method : classNode.methods) {
                 boolean changed = false;
@@ -528,16 +644,22 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                     }
 
                     final MethodKey resolved = resolveMethod(classes, methodInsn.owner, methodInsn.name, methodInsn.desc);
-                    final String newDesc = resolved == null ? null : candidates.get(resolved);
-                    if (newDesc == null) {
+                    final Candidate candidate = resolved == null ? null : candidates.get(resolved);
+                    if (candidate == null) {
                         continue;
                     }
 
                     final Type[] argumentTypes = Type.getArgumentTypes(methodInsn.desc);
+                    final Type returnType = Type.getReturnType(methodInsn.desc);
                     final boolean isStatic = methodInsn.getOpcode() == Opcodes.INVOKESTATIC;
-                    final InsnList replacement = packArguments(argumentTypes, isStatic);
-                    method.instructions.insertBefore(methodInsn, replacement);
-                    methodInsn.desc = newDesc;
+
+                    if (candidate.rewriteArgs) {
+                        method.instructions.insertBefore(methodInsn, packArguments(argumentTypes, isStatic));
+                    }
+                    methodInsn.desc = candidate.newDesc;
+                    if (candidate.rewriteReturn) {
+                        method.instructions.insert(methodInsn, unpackReturnValue(returnType));
+                    }
                     changed = true;
                 }
 
@@ -589,12 +711,27 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         return resolveMethod(classes, classNode.superName, name, desc, visited);
     }
 
-    private String buildObfuscatedDesc(final String desc) {
-        return Type.getMethodDescriptor(
-                Type.getReturnType(desc),
-                Type.getType(BYTE_ARRAY_DESC),
-                Type.getType(OBJECT_ARRAY_DESC)
-        );
+    /**
+     * Builds the rewritten descriptor. When {@code rewriteArgs} the parameter
+     * list collapses to {@code (byte[], Object[])}; when {@code rewriteReturn}
+     * the return type becomes {@code byte[]} (primitive) or {@code Object[]}
+     * (reference/array). Either flag may be set independently.
+     */
+    private String buildNewDesc(final String desc, final boolean rewriteArgs, final boolean rewriteReturn) {
+        final Type returnType = Type.getReturnType(desc);
+        final Type newReturn = rewriteReturn
+                ? Type.getType(mappedReturnDesc(returnType))
+                : returnType;
+        if (rewriteArgs) {
+            return Type.getMethodDescriptor(newReturn,
+                    Type.getType(BYTE_ARRAY_DESC),
+                    Type.getType(OBJECT_ARRAY_DESC));
+        }
+        return Type.getMethodDescriptor(newReturn, Type.getArgumentTypes(desc));
+    }
+
+    private String mappedReturnDesc(final Type returnType) {
+        return isPrimitive(returnType) ? BYTE_ARRAY_DESC : OBJECT_ARRAY_DESC;
     }
 
     private InsnList packArguments(final Type[] argumentTypes, final boolean isStatic) {
@@ -653,25 +790,27 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
 
     private transient int nextScratchLocal;
 
-    private void addUnpackPrologue(final MethodNode method, final String oldDesc) {
+    /**
+     * Appends the argument-unpack prologue to {@code prologue}: it copies the
+     * incoming {@code (byte[], Object[])} carriers into scratch locals and
+     * restores every original argument into its original local slot, so the
+     * untouched method body keeps working against the original layout. Scratch
+     * locals are drawn from {@link #nextScratchLocal}.
+     */
+    private void appendUnpackPrologue(final InsnList prologue, final String oldDesc, final boolean isStatic) {
         final Type[] argumentTypes = Type.getArgumentTypes(oldDesc);
-        final boolean isStatic = (method.access & Opcodes.ACC_STATIC) != 0;
-        final int oldBase = isStatic ? 0 : 1;
-        final int newBase = isStatic ? 0 : 1;
-        method.maxLocals = Math.max(method.maxLocals, computeLocalLimit(method));
-        int next = Math.max(method.maxLocals, newBase + 2);
-        final int byteArrayLocal = next++;
-        final int objectArrayLocal = next++;
+        final int base = isStatic ? 0 : 1;
+        final int byteArrayLocal = nextScratchLocal++;
+        final int objectArrayLocal = nextScratchLocal++;
 
-        final InsnList prologue = new InsnList();
-        prologue.add(new VarInsnNode(Opcodes.ALOAD, newBase));
+        prologue.add(new VarInsnNode(Opcodes.ALOAD, base));
         prologue.add(new VarInsnNode(Opcodes.ASTORE, byteArrayLocal));
-        prologue.add(new VarInsnNode(Opcodes.ALOAD, newBase + 1));
+        prologue.add(new VarInsnNode(Opcodes.ALOAD, base + 1));
         prologue.add(new VarInsnNode(Opcodes.ASTORE, objectArrayLocal));
 
         int byteOffset = 0;
         int objectOffset = 0;
-        int targetLocal = oldBase;
+        int targetLocal = base;
         for (Type type : argumentTypes) {
             if (isPrimitive(type)) {
                 byteOffset = emitPrimitiveUnpack(prologue, byteArrayLocal, byteOffset, type);
@@ -685,10 +824,109 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             }
             targetLocal += type.getSize();
         }
+    }
 
-        method.instructions.insert(prologue);
-        method.maxLocals = Math.max(method.maxLocals, next);
-        method.maxStack = Math.max(method.maxStack, 8);
+    /**
+     * Converts every value-return in the body into an array carrier. The
+     * returned value is packed into a fresh {@code byte[]} (primitive returns,
+     * big-endian) or {@code Object[]} (reference returns, slot 0); when
+     * {@code threadKey} the captured seed is appended as the trailing 4 bytes /
+     * the boxed last slot. A single pair of scratch locals (value + array) is
+     * shared across all return sites. Scratch locals are drawn from
+     * {@link #nextScratchLocal}.
+     */
+    private void emitReturnRewrites(final MethodNode method, final Type returnType,
+                                    final boolean threadKey, final int seedLocal) {
+        final boolean primitive = isPrimitive(returnType);
+        final int valueLocal = nextScratchLocal;
+        nextScratchLocal += returnType.getSize();
+        final int arrayLocal = nextScratchLocal++;
+
+        final List<AbstractInsnNode> returns = new ArrayList<>();
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (isValueReturn(insn.getOpcode())) {
+                returns.add(insn);
+            }
+        }
+
+        for (AbstractInsnNode ret : returns) {
+            final InsnList pack = new InsnList();
+            if (primitive) {
+                final int primSize = primitiveByteSize(new Type[]{returnType});
+                pack.add(new VarInsnNode(returnType.getOpcode(Opcodes.ISTORE), valueLocal));
+                pushInt(pack, primSize + (threadKey ? 4 : 0));
+                pack.add(new IntInsnNode(Opcodes.NEWARRAY, Opcodes.T_BYTE));
+                pack.add(new VarInsnNode(Opcodes.ASTORE, arrayLocal));
+                emitPrimitivePack(pack, arrayLocal, 0, returnType, valueLocal);
+                if (threadKey) {
+                    emitIntByteStores(pack, arrayLocal, primSize, seedLocal, 4);
+                }
+                pack.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+            } else {
+                pack.add(new VarInsnNode(Opcodes.ASTORE, valueLocal));
+                pushInt(pack, threadKey ? 2 : 1);
+                pack.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
+                pack.add(new VarInsnNode(Opcodes.ASTORE, arrayLocal));
+                pack.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+                pack.add(new InsnNode(Opcodes.ICONST_0));
+                pack.add(new VarInsnNode(Opcodes.ALOAD, valueLocal));
+                pack.add(new InsnNode(Opcodes.AASTORE));
+                if (threadKey) {
+                    pack.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+                    pack.add(new InsnNode(Opcodes.ICONST_1));
+                    pack.add(new VarInsnNode(Opcodes.ILOAD, seedLocal));
+                    pack.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf",
+                            "(I)Ljava/lang/Integer;", false));
+                    pack.add(new InsnNode(Opcodes.AASTORE));
+                }
+                pack.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+            }
+            method.instructions.insertBefore(ret, pack);
+            method.instructions.set(ret, new InsnNode(Opcodes.ARETURN));
+        }
+    }
+
+    /**
+     * Inserted directly after a rewritten callsite whose target now returns an
+     * array carrier: reconstructs the original return value from the FRONT of
+     * the array (bytes {@code [0, size)} for {@code byte[]}, slot 0 for
+     * {@code Object[]}), leaving exactly the original type on the stack. Any
+     * trailing threaded-key slot is ignored. Scratch locals are drawn from
+     * {@link #nextScratchLocal}.
+     */
+    private InsnList unpackReturnValue(final Type returnType) {
+        final InsnList post = new InsnList();
+        final int arrayLocal = nextScratchLocal++;
+        post.add(new VarInsnNode(Opcodes.ASTORE, arrayLocal));
+        if (isPrimitive(returnType)) {
+            emitPrimitiveUnpack(post, arrayLocal, 0, returnType);
+        } else {
+            post.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+            post.add(new InsnNode(Opcodes.ICONST_0));
+            post.add(new InsnNode(Opcodes.AALOAD));
+            emitCheckCast(post, returnType);
+        }
+        return post;
+    }
+
+    /**
+     * Local slot of the trailing int (the threaded seed) under the original
+     * descriptor. The arg-unpack prologue restores the seed into this exact
+     * slot, so it is valid whether or not arguments are also packed.
+     */
+    private int seedParamLocal(final String oldDesc, final boolean isStatic) {
+        final Type[] args = Type.getArgumentTypes(oldDesc);
+        int local = isStatic ? 0 : 1;
+        for (int i = 0; i < args.length - 1; i++) {
+            local += args[i].getSize();
+        }
+        return local;
+    }
+
+    private boolean isValueReturn(final int opcode) {
+        return opcode == Opcodes.IRETURN || opcode == Opcodes.LRETURN
+                || opcode == Opcodes.FRETURN || opcode == Opcodes.DRETURN
+                || opcode == Opcodes.ARETURN;
     }
 
     private int computeLocalLimit(final MethodNode method) {
@@ -956,6 +1194,24 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             insns.add(new IntInsnNode(Opcodes.SIPUSH, value));
         } else {
             insns.add(new LdcInsnNode(value));
+        }
+    }
+
+    /** What to do to a single eligible method, computed once during analysis. */
+    private static final class Candidate {
+        private final String newDesc;
+        private final boolean rewriteArgs;
+        private final boolean rewriteReturn;
+        private final Type returnType;
+        private final boolean threadKey;
+
+        private Candidate(final String newDesc, final boolean rewriteArgs, final boolean rewriteReturn,
+                          final Type returnType, final boolean threadKey) {
+            this.newDesc = newDesc;
+            this.rewriteArgs = rewriteArgs;
+            this.rewriteReturn = rewriteReturn;
+            this.returnType = returnType;
+            this.threadKey = threadKey;
         }
     }
 

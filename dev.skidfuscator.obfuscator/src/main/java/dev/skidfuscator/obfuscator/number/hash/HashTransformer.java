@@ -55,9 +55,15 @@ public interface HashTransformer {
      * pinning and rotation all still hold — so this works for every implementation
      * without touching their candidate machinery.</p>
      *
-     * @param salt when {@code true}, fold via a non-linear 64-bit multiply-mix (its
-     *             high 32 bits) instead of the linear xor-fold, to resist cross-guard
-     *             linear correlation. Both folds are deterministic (build == runtime).
+     * @param salt when {@code true}, fold with the {@code H}-keyed multiplier
+     *             {@code (L ^ H) * (H | 1)} — the high word {@code H} keys an odd,
+     *             invertible multiplier applied to the low word {@code L} — instead of
+     *             the linear xor-fold. Because integer multiply does not distribute
+     *             over XOR, the output's differential is key-dependent: an analyst who
+     *             knows {@code L} (the recoverable low 32 bits) cannot predict how the
+     *             guard moves under a perturbation without also knowing the secret
+     *             {@code H}. Still exactly 2^32 preimages (a bijection of {@code L} for
+     *             each fixed {@code H}). Both folds are deterministic (build == runtime).
      */
     default SkiddedHash hashWide(final long starting, final BasicBlock vertex,
                                  final PredicateFlowGetter caller, final boolean salt) {
@@ -71,28 +77,55 @@ public interface HashTransformer {
     /** Build-time 64-&gt;32 fold; must match {@link #foldWideExpr} bit-for-bit. */
     static int foldWide(final long seed, final boolean salt) {
         if (salt) {
-            // non-linear: high 32 bits of a multiply-mix (bijective on 64 bits)
-            return (int) ((seed * 0xff51afd7ed558ccdL) >>> 32);
+            // H-keyed multiplier (mirror of foldWideExpr): out = (L ^ H) * (H | 1).
+            // (H | 1) is odd => invertible mod 2^32, so out is a bijection of L for
+            // each fixed H (still exactly 2^32 preimages over (L, H)). Multiply does
+            // not distribute over XOR, so the differential depends on the secret H.
+            final int low = (int) seed;            // L
+            final int high = (int) (seed >>> 32);  // H
+            return (low ^ high) * (high | 1);
         }
         // linear: xor the high and low 32-bit words (exactly 2^32 preimages)
         return (int) (seed ^ (seed >>> 32));
     }
 
+    /** {@code (int)(seed >>> 32)} — the high 32-bit word, as a fresh runtime expression. */
+    private static Expr highWordExpr(final PredicateFlowGetter caller, final BasicBlock vertex) {
+        // seed >>> 32 resolves to LONG (resolveBinOpType(LONG, INT)), then L2I to the
+        // high word. A fresh tree each call: nodes can't be shared across parents.
+        return new CastExpr(
+                new ArithmeticExpr(
+                        new ConstantExpr(32, Type.INT_TYPE),
+                        caller.getWide(vertex),
+                        ArithmeticExpr.Operator.USHR
+                ),
+                Type.INT_TYPE
+        );
+    }
+
     /** Runtime 64-&gt;32 fold expression; reads the wide seed via {@link PredicateFlowGetter#getWide}. */
     static Expr foldWideExpr(final PredicateFlowGetter caller, final BasicBlock vertex, final boolean salt) {
         if (salt) {
-            // (seed * C) >>> 32, then L2I
-            final Expr mixed = new ArithmeticExpr(
-                    new ConstantExpr(0xff51afd7ed558ccdL, Type.LONG_TYPE),
-                    caller.getWide(vertex),
+            // H-keyed multiplier: out = (L ^ H) * (H | 1), with L = (int) seed and
+            // H = (int)(seed >>> 32). (H | 1) is odd => bijection of L for each fixed
+            // H. Multiply does not distribute over XOR, so an analyst who knows L
+            // cannot predict the output's response to a perturbation without H.
+            final Expr low = new CastExpr(caller.getWide(vertex), Type.INT_TYPE); // L
+            final Expr xored = new ArithmeticExpr(            // L ^ H
+                    highWordExpr(caller, vertex),
+                    low,
+                    ArithmeticExpr.Operator.XOR
+            );
+            final Expr oddKey = new ArithmeticExpr(          // H | 1
+                    new ConstantExpr(1, Type.INT_TYPE),
+                    highWordExpr(caller, vertex),
+                    ArithmeticExpr.Operator.OR
+            );
+            return new ArithmeticExpr(                        // (L ^ H) * (H | 1)
+                    oddKey,
+                    xored,
                     ArithmeticExpr.Operator.MUL
             );
-            final Expr shifted = new ArithmeticExpr(
-                    new ConstantExpr(32, Type.INT_TYPE),
-                    mixed,
-                    ArithmeticExpr.Operator.USHR
-            );
-            return new CastExpr(shifted, Type.INT_TYPE);
         }
 
         // (seed ^ (seed >>> 32)), then L2I
