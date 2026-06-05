@@ -15,7 +15,6 @@ import dev.skidfuscator.obfuscator.skidasm.expr.SkidConstantExpr;
 import dev.skidfuscator.obfuscator.skidasm.fake.FakeConditionalJumpStmt;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 import dev.skidfuscator.obfuscator.transform.Transformer;
-import org.mapleir.ir.TypeUtils;
 import org.mapleir.ir.cfg.BasicBlock;
 import org.mapleir.ir.code.CodeUnit;
 import org.mapleir.ir.code.Expr;
@@ -296,11 +295,22 @@ public class NumberTransformer extends AbstractTransformer {
             return false;
         }
 
-        if (TypeUtils.resolveBinOpType(jump.getLeft().getType(), jump.getRight().getType()) != Type.INT_TYPE) {
+        // resolveBinOpType throws on a primitive/object-ref mismatch (e.g. char vs
+        // MapleIR Null, as produced on degenerate input such as mapwriter MwChunk).
+        // Such a comparison is never an int-stack equality we want to hash, so screen
+        // it out directly instead of letting the throw escape and abort the whole
+        // method transform. Both operands int-category is exactly the condition under
+        // which resolveBinOpType would have returned INT_TYPE.
+        if (!isIntStackType(jump.getLeft().getType()) || !isIntStackType(jump.getRight().getType())) {
             return false;
         }
 
         return !(jump.getLeft() instanceof ComparisonExpr) && !(jump.getRight() instanceof ComparisonExpr);
+    }
+
+    /** True if {@code type} is an int-category stack type (boolean/char/byte/short/int). */
+    private static boolean isIntStackType(final Type type) {
+        return type.getSort() >= Type.BOOLEAN && type.getSort() <= Type.INT;
     }
 
     /**

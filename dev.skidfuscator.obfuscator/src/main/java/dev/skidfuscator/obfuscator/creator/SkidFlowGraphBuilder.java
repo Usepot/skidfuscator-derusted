@@ -44,7 +44,14 @@ public class SkidFlowGraphBuilder extends ControlFlowGraphBuilder {
         ControlFlowGraphBuilder builder = new SkidFlowGraphBuilder(method, SkidBlockFactory.v(skidfuscator), skidfuscator);
         final ControlFlowGraph cfg = builder.buildImpl();
         BoissinotDestructor.leaveSSA(cfg);
-        SkidLocalsReallocator.realloc(skidfuscator, cfg);
+        try {
+            SkidLocalsReallocator.realloc(skidfuscator, cfg);
+        } catch (RuntimeException e) {
+            Skidfuscator.LOGGER.warn(
+                    "Skipping local reallocation for " + method.getOwner() + "#"
+                            + method.getName() + method.getDesc() + ": " + e.getMessage()
+            );
+        }
 
         return cfg;
     }

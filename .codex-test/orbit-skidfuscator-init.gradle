@@ -1,0 +1,21 @@
+initscript {
+    dependencies {
+        classpath files(
+            'C:/Users/Ambassator/Documents/Foreground/skidfuscator-java-obfuscator/dev.skidfuscator.gradle-plugin/build/libs/gradle-plugin-2.0.0-SNAPSHOT.jar',
+            'C:/Users/Ambassator/.gradle/caches/modules-2/files-2.1/com.typesafe/config/1.4.2/4c40a633e7994cfb0354244efb6d03fcb11c3ecf/config-1.4.2.jar'
+        )
+    }
+}
+
+gradle.projectsEvaluated {
+    def p = gradle.rootProject
+    p.apply plugin: getClass().classLoader.loadClass('dev.skidfuscator.gradle.SkidfuscatorPlugin')
+    p.skidfuscator {
+        skidfuscatorJar = p.file('C:/Users/Ambassator/Documents/Foreground/skidfuscator-java-obfuscator/dev.skidfuscator.client.standalone/build/libs/client-standalone-downgraded-shaded.jar')
+        javaExecutable = p.file('C:/Users/Ambassator/.jdks/corretto-1.8.0_452/bin/java.exe')
+        runtimePath = p.file('C:/Users/Ambassator/.jdks/corretto-1.8.0_452')
+        outputJar = new File(p.buildDir, 'libs/.orbitclient-obfuscated.jar')
+        analytics = false
+        library p.file('C:/Users/Ambassator/.gradle/caches/modules-2/files-2.1/net.minecraftforge/fernflower/2.0-SNAPSHOT/67d785bbdf22477c158cbacb8116e29c9bced797/fernflower-2.0-SNAPSHOT.jar')
+    }
+}

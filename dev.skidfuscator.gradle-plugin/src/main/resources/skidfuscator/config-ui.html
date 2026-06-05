@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skidfuscator · Gradle configurator</title>
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     Skidfuscator Gradle configurator.
+     Product surface: a control panel that disappears into the task of
+     dialing in obfuscation. Restrained colour (tinted violet neutrals,
+     one accent reserved for state), system sans for UI, mono only where
+     it is semantically code. OKLCH throughout. Fully self-contained and
+     offline-safe: no web fonts, no network, runs straight off file://.
+     ─────────────────────────────────────────────────────────────── */
+  :root {
+    --h: 295;                                   /* brand violet hue */
+    --bg:        oklch(0.165 0.012 var(--h));
+    --bg-grain:  oklch(0.185 0.014 var(--h));
+    --surface:   oklch(0.205 0.014 var(--h));
+    --surface-2: oklch(0.225 0.016 var(--h));
+    --nav-bg:    oklch(0.185 0.013 var(--h));
+    --code-bg:   oklch(0.145 0.011 var(--h));
+    --line:      oklch(0.305 0.016 var(--h));
+    --line-soft: oklch(0.255 0.013 var(--h));
+
+    --text:      oklch(0.955 0.006 var(--h));
+    --text-2:    oklch(0.745 0.014 var(--h));
+    --text-3:    oklch(0.585 0.014 var(--h));
+
+    --accent:      oklch(0.705 0.135 var(--h));
+    --accent-hi:   oklch(0.775 0.140 var(--h));
+    --accent-tint: oklch(0.705 0.135 var(--h) / 0.14);
+    --accent-line: oklch(0.705 0.135 var(--h) / 0.45);
+    --on-accent:   oklch(0.16 0.02 var(--h));
+
+    --ok:    oklch(0.78 0.13 152);
+    --warn:  oklch(0.80 0.125 78);
+    --danger:oklch(0.70 0.16 25);
+
+    --sans: "Segoe UI Variable Text","Segoe UI", ui-sans-serif, system-ui,
+            -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono","Cascadia Code","SFMono-Regular","SF Mono",
+            "Consolas", ui-monospace, monospace;
+
+    --t-xs: .6875rem; --t-sm: .8125rem; --t-md: .875rem; --t-lg: 1rem;
+    --r: 8px; --r-sm: 6px;
+    --shadow: 0 1px 2px oklch(0 0 0 / .3), 0 8px 24px oklch(0 0 0 / .22);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: var(--t-sm); line-height: 1.55;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--accent-tint); }
+  a { color: var(--accent-hi); text-underline-offset: 2px; }
+
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-thumb { background: oklch(0.32 0.015 var(--h)); border-radius: 7px;
+    border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(0.40 0.02 var(--h)); background-clip: padding-box; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  /* ── app bar ─────────────────────────────────────────────── */
+  .appbar {
+    position: sticky; top: 0; z-index: 60;
+    display: flex; align-items: center; gap: 20px;
+    height: 56px; padding: 0 22px;
+    background: oklch(0.175 0.013 var(--h) / .9);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+  }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .brand .mark { color: var(--accent); font-size: 16px; line-height: 1; }
+  .brand .name { font-weight: 650; font-size: var(--t-md); letter-spacing: .01em; }
+  .brand .ctx {
+    font-size: var(--t-xs); color: var(--text-3); padding-left: 11px;
+    border-left: 1px solid var(--line); letter-spacing: .02em;
+  }
+  .summary { display: flex; align-items: center; gap: 14px; font-size: var(--t-xs); color: var(--text-2); }
+  .summary .stat { display: flex; align-items: baseline; gap: 5px; }
+  .summary .stat b { font-size: var(--t-md); font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+  .summary .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .summary .stat.risk b { color: var(--warn); }
+  .summary .stat.risk .dot { background: var(--warn); }
+  .summary .stat.risk.none b { color: var(--text-3); }
+  .summary .stat.risk.none .dot { background: var(--text-3); }
+  .appbar .spacer { flex: 1; }
+  .pluginid {
+    font-family: var(--mono); font-size: var(--t-xs); color: var(--text-2);
+    padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px;
+  }
+  .pluginid b { color: var(--accent-hi); font-weight: 600; }
+
+  /* ── shell layout ────────────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-columns: 190px minmax(0,1fr) minmax(400px, 31rem);
+    align-items: start;
+  }
+  @media (max-width: 1199px) { .shell { grid-template-columns: minmax(0,1fr) minmax(370px, 27rem); } .nav { display: none; } }
+  @media (max-width: 859px)  { .shell { grid-template-columns: 1fr; } .output { position: static; height: auto; border-left: none; border-top: 1px solid var(--line); } }
+
+  /* ── nav rail ────────────────────────────────────────────── */
+  .nav {
+    position: sticky; top: 56px; align-self: start;
+    max-height: calc(100vh - 56px); overflow: auto;
+    padding: 22px 10px 40px 18px;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .nav a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: var(--r-sm);
+    color: var(--text-3); text-decoration: none; font-size: var(--t-sm);
+    transition: color .15s, background .15s;
+  }
+  .nav a:hover { color: var(--text); background: var(--surface); }
+  .nav a.active { color: var(--text); background: var(--accent-tint); font-weight: 550; }
+  .nav a .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav a .cnt {
+    font-family: var(--mono); font-size: var(--t-xs); font-variant-numeric: tabular-nums;
+    color: var(--text-3); min-width: 16px; text-align: right;
+  }
+  .nav a.active .cnt, .nav a:hover .cnt { color: var(--accent-hi); }
+  .nav .group { font-size: var(--t-xs); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-3); padding: 16px 10px 6px; }
+
+  /* ── editor column ───────────────────────────────────────── */
+  .editor { padding: 8px 30px 120px; min-width: 0; }
+  .section { padding-top: 30px; scroll-margin-top: 72px; }
+  .section > h2 {
+    margin: 0 0 4px; font-size: var(--t-lg); font-weight: 650; letter-spacing: -.01em;
+  }
+  .section > .sub { margin: 0 0 16px; color: var(--text-2); font-size: var(--t-sm); max-width: 70ch; }
+
+  /* presets */
+  .presets { display: flex; flex-wrap: wrap; gap: 9px; }
+  .preset {
+    cursor: pointer; text-align: left;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text);
+    border-radius: var(--r); padding: 11px 15px; min-width: 150px;
+    font-family: var(--sans); transition: border-color .15s, background .15s, transform .1s;
+  }
+  .preset:hover { border-color: var(--accent-line); background: var(--surface-2); }
+  .preset:active { transform: translateY(1px); }
+  .preset .pn { display: block; font-weight: 600; font-size: var(--t-md); }
+  .preset .pt { display: block; font-size: var(--t-xs); color: var(--text-3); margin-top: 2px; }
+
+  /* form */
+  .form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px 22px; }
+  @media (max-width: 560px) { .form { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .field > label { font-size: var(--t-sm); font-weight: 550; color: var(--text); }
+  .field .hint { font-size: var(--t-xs); color: var(--text-3); }
+  input[type=text], select {
+    width: 100%; font-family: var(--mono); font-size: var(--t-sm); color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+    padding: 8px 11px; outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  input[type=text]:hover, select:hover { border-color: oklch(0.36 0.018 var(--h)); }
+  input[type=text]:focus, select:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+  }
+  textarea {
+    width: 100%; font-family: var(--mono); font-size: var(--t-sm); color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+    padding: 11px 13px; outline: none; resize: vertical; min-height: 104px; line-height: 1.7;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  textarea:hover { border-color: oklch(0.36 0.018 var(--h)); }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+  select {
+    appearance: none; cursor: pointer; padding-right: 30px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+      linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+  }
+  .switchfield { grid-column: span 1; display: flex; align-items: flex-start; gap: 12px; padding-top: 2px; }
+  .switchfield .meta { display: flex; flex-direction: column; gap: 2px; }
+  .switchfield .meta label { font-size: var(--t-sm); font-weight: 550; }
+  .switchfield .meta .hint { font-size: var(--t-xs); color: var(--text-3); }
+  .exempt-help { margin-top: 11px; font-size: var(--t-xs); color: var(--text-3); line-height: 1.7; }
+  .exempt-help code { font-family: var(--mono); color: var(--accent-hi); background: var(--accent-tint);
+    padding: 1px 5px; border-radius: 4px; }
+
+  /* exemption class tree */
+  .tree-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .tree-toolbar #treeSearch { flex: 1; }
+  .tree-stat { font-size: var(--t-xs); color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tree {
+    border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+    max-height: 440px; overflow: auto; padding: 6px;
+  }
+  .trow { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 6px; white-space: nowrap; }
+  .trow:hover { background: var(--surface-2); }
+  .tcaret { width: 12px; text-align: center; color: var(--text-3); cursor: pointer; user-select: none;
+    font-size: 9px; transition: transform .15s; flex: 0 0 auto; }
+  .tcaret.open { transform: rotate(90deg); }
+  .tcaret.none { visibility: hidden; }
+  input.tcheck { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; margin: 0; }
+  .tname { font-family: var(--mono); font-size: var(--t-sm); cursor: default; }
+  .tname.dir { color: var(--text); cursor: pointer; }
+  .tname.cls { color: var(--text-2); }
+  .tcount { font-family: var(--mono); font-size: var(--t-xs); color: var(--text-3); }
+  .tchildren { margin-left: 18px; display: none; border-left: 1px solid var(--line-soft); }
+  .tchildren.open { display: block; }
+  .tree-more { padding: 6px 8px; color: var(--text-3); font-size: var(--t-xs); }
+  .tree-empty {
+    border: 1px dashed var(--line); border-radius: var(--r); background: var(--surface);
+    padding: 14px 16px; color: var(--text-2); font-size: var(--t-sm); line-height: 1.65;
+  }
+  .tree-empty code { font-family: var(--mono); color: var(--accent-hi); background: var(--accent-tint); padding: 1px 6px; border-radius: 4px; }
+  .zone.adv { margin-top: 14px; }
+
+  /* settings list (transformers) */
+  .list { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+  .row { border-top: 1px solid var(--line-soft); transition: background .14s; }
+  .row:first-child { border-top: none; }
+  .row.on { background: oklch(0.705 0.135 var(--h) / 0.055); }
+  .row-head { display: flex; align-items: flex-start; gap: 14px; padding: 13px 16px; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .row-title .nm { font-weight: 600; font-size: var(--t-md); }
+  .row-title .key { font-family: var(--mono); font-size: var(--t-xs); color: var(--text-3); }
+  .row-desc { color: var(--text-2); font-size: var(--t-sm); margin-top: 3px; max-width: 74ch; }
+  .row.unwired .row-title .nm { color: var(--text-2); }
+
+  .expander {
+    appearance: none; border: 1px solid var(--line); background: transparent; cursor: pointer;
+    width: 26px; height: 26px; border-radius: var(--r-sm); color: var(--text-3);
+    display: grid; place-items: center; transition: color .15s, border-color .15s, transform .18s;
+    flex: 0 0 auto; align-self: center;
+  }
+  .expander:hover { color: var(--text); border-color: var(--accent-line); }
+  .expander svg { width: 12px; height: 12px; transition: transform .2s cubic-bezier(.22,1,.36,1); }
+  .expander.open svg { transform: rotate(180deg); }
+  .expander.none { visibility: hidden; }
+
+  .badge {
+    font-size: var(--t-xs); font-weight: 600; letter-spacing: .03em;
+    padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-3);
+  }
+  .badge.late     { color: var(--info, oklch(0.74 0.1 250)); border-color: oklch(0.5 0.07 250); }
+  .badge.risky    { color: var(--danger); border-color: oklch(0.5 0.1 25); }
+  .badge.hardening{ color: var(--accent-hi); border-color: var(--accent-line); }
+  .badge.unwired  { color: var(--text-3); border-color: var(--line); }
+
+  .opts {
+    display: none; padding: 2px 16px 16px 52px; overflow: hidden;
+  }
+  .opts.open { display: block; animation: reveal .22s cubic-bezier(.22,1,.36,1); }
+  @keyframes reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .opts .opt { margin-top: 13px; }
+  .opts .opt:first-child { margin-top: 6px; }
+
+  /* toggle switch (full state vocabulary) */
+  .switch { position: relative; display: inline-flex; flex: 0 0 auto; width: 38px; height: 22px; cursor: pointer; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: oklch(0.34 0.012 var(--h)); border: 1px solid oklch(0.40 0.015 var(--h));
+    transition: background .18s, border-color .18s;
+  }
+  .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: oklch(0.86 0.01 var(--h));
+    transition: transform .2s cubic-bezier(.22,1,.36,1), background .18s;
+    box-shadow: 0 1px 2px oklch(0 0 0 / .35);
+  }
+  .switch:hover .track { border-color: oklch(0.46 0.02 var(--h)); }
+  .switch input:checked + .track { background: var(--accent); border-color: var(--accent-hi); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: oklch(0.99 0.005 var(--h)); }
+  .switch input:focus-visible + .track { box-shadow: 0 0 0 3px var(--accent-tint); }
+
+  /* unwired collapsible zone */
+  .zone > summary {
+    cursor: pointer; list-style: none; user-select: none;
+    display: flex; align-items: center; gap: 8px; padding: 10px 2px; color: var(--text-3);
+    font-size: var(--t-sm);
+  }
+  .zone > summary::-webkit-details-marker { display: none; }
+  .zone > summary .tw { transition: transform .2s; color: var(--accent); }
+  .zone[open] > summary .tw { transform: rotate(90deg); }
+  .zone > summary .z-sub { color: var(--text-3); font-size: var(--t-xs); }
+
+  /* ── output column ───────────────────────────────────────── */
+  .output {
+    position: sticky; top: 56px; height: calc(100vh - 56px);
+    border-left: 1px solid var(--line); background: var(--bg-grain);
+    display: flex; flex-direction: column;
+  }
+  .filetabs { display: flex; align-items: stretch; gap: 2px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); }
+  .ftab {
+    appearance: none; background: transparent; border: 1px solid transparent; border-bottom: none;
+    cursor: pointer; font-family: var(--mono); font-size: var(--t-xs); color: var(--text-3);
+    padding: 9px 13px; border-radius: var(--r-sm) var(--r-sm) 0 0; transition: color .15s, background .15s;
+  }
+  .ftab:hover { color: var(--text-2); }
+  .ftab.active { color: var(--text); background: var(--code-bg); border-color: var(--line); margin-bottom: -1px; }
+  .out-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; padding-bottom: 9px; }
+  .btn {
+    appearance: none; cursor: pointer; font-family: var(--sans); font-size: var(--t-xs); font-weight: 550;
+    padding: 7px 13px; border-radius: var(--r-sm); border: 1px solid var(--line);
+    background: var(--surface); color: var(--text-2); transition: color .15s, background .15s, border-color .15s;
+  }
+  .btn:hover { color: var(--text); background: var(--surface-2); border-color: var(--accent-line); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent-hi); }
+  .btn.primary:hover { background: var(--accent-hi); }
+
+  .filehead {
+    display: flex; align-items: center; gap: 8px; padding: 9px 16px;
+    font-size: var(--t-xs); color: var(--text-3); border-bottom: 1px solid var(--line-soft);
+    background: var(--code-bg);
+  }
+  .filehead .fname { font-family: var(--mono); color: var(--text); }
+  .filehead .spacer { flex: 1; }
+  pre.code {
+    flex: 1; margin: 0; overflow: auto; padding: 16px 18px; background: var(--code-bg);
+    font-family: var(--mono); font-size: var(--t-sm); line-height: 1.65; tab-size: 2; white-space: pre;
+  }
+  pre .c { color: var(--text-3); font-style: italic; }
+  pre .k { color: var(--accent-hi); }
+  pre .s { color: oklch(0.82 0.11 152); }
+  pre .b { color: oklch(0.78 0.10 250); }
+  pre .e { color: var(--warn); }
+
+  .consistency { border-top: 1px solid var(--line); background: var(--bg-grain);
+    padding: 11px 16px; font-size: var(--t-xs); max-height: 168px; overflow: auto; }
+  .ci { display: flex; gap: 9px; padding: 4px 0; align-items: flex-start; line-height: 1.5; }
+  .ci .ic { flex: 0 0 auto; margin-top: 1px; }
+  .ci.ok   { color: var(--text-3); }
+  .ci.ok .ic   { color: var(--ok); }
+  .ci.warn { color: var(--text-2); }
+  .ci.warn .ic { color: var(--warn); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 14px);
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--accent-line);
+    font-size: var(--t-sm); font-weight: 550; padding: 10px 18px; border-radius: var(--r);
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s cubic-bezier(.22,1,.36,1);
+    z-index: 100; box-shadow: var(--shadow);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast .ic { color: var(--accent); margin-right: 8px; }
+</style>
+</head>
+<body>
+<header class="appbar">
+  <div class="brand">
+    <span class="mark">◈</span>
+    <span class="name">Skidfuscator</span>
+    <span class="ctx">Gradle configurator</span>
+  </div>
+  <div class="summary" id="summary"></div>
+  <span class="spacer"></span>
+  <span class="pluginid" id="pluginId"></span>
+</header>
+
+<div class="shell">
+  <nav class="nav" id="nav" aria-label="Sections"></nav>
+
+  <main class="editor" id="editor">
+    <section class="section" id="sec-presets" data-sec data-label="Presets">
+      <h2>Presets</h2>
+      <p class="sub">A starting point. Everything below stays editable.</p>
+      <div class="presets" id="presets"></div>
+    </section>
+
+    <section class="section" id="sec-plugin" data-sec data-label="Gradle plugin">
+      <h2>Gradle plugin</h2>
+      <p class="sub">Wiring and runtime flags. These live in <code>build.gradle</code>, not the HOCON file.</p>
+      <div class="form" id="gradleForm"></div>
+    </section>
+
+    <section class="section" id="sec-exempt" data-sec data-label="Exemptions">
+      <h2>Exemptions</h2>
+      <p class="sub">Tick a package or class to leave it untouched by every pass. Ticking a folder exempts everything inside it.</p>
+
+      <div id="treePanel">
+        <div class="tree-toolbar">
+          <input type="text" id="treeSearch" spellcheck="false" placeholder="Filter packages and classes" aria-label="Filter the class tree">
+          <span class="tree-stat" id="treeStat"></span>
+          <button class="btn" id="treeClear" type="button">Clear</button>
+        </div>
+        <div class="tree" id="tree" role="tree"></div>
+      </div>
+
+      <div id="treeEmpty" class="tree-empty" style="display:none">
+        No class tree loaded. Run <code>./gradlew skidfuscatorConfigUi</code> from your project so the configurator can read
+        your compiled classes, then reopen this page. Until then, add matchers by hand below.
+      </div>
+
+      <details class="zone adv">
+        <summary><span class="tw">&rsaquo;</span><span>Advanced matchers</span></summary>
+        <p class="exempt-help" style="margin-top:10px">
+          One matcher per line, applied on top of the ticked classes above. Use these for method-level or regex rules:
+          <code>class{com/example/api/**}</code>, <code>method{com/example/Main.main*}</code>.
+          Backslashes are escaped for you in the generated HOCON.
+        </p>
+        <textarea id="exempt" spellcheck="false" rows="5" aria-label="Advanced exemption matchers"></textarea>
+      </details>
+    </section>
+  </main>
+
+  <aside class="output">
+    <div class="filetabs">
+      <button class="ftab active" data-out="hocon">skidfuscator.hocon</button>
+      <button class="ftab" data-out="groovy">build.gradle</button>
+      <button class="ftab" data-out="kotlin">build.gradle.kts</button>
+      <div class="out-actions">
+        <button class="btn" id="copyBtn">Copy</button>
+        <button class="btn primary" id="dlBtn">Download</button>
+      </div>
+    </div>
+    <div class="filehead">
+      <span>writes to</span><span class="fname" id="fileName">skidfuscator.hocon</span>
+      <span class="spacer"></span>
+      <span id="fileNote"></span>
+    </div>
+    <pre class="code" id="code" tabindex="0"></pre>
+    <div class="consistency" id="consistency"></div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Class tree injected by the Gradle task (skidfuscatorConfigUi). Stays the literal
+     placeholder when the page is opened without the task, which switches the picker to
+     manual mode. Inline (not fetched) so it works offline from file://. -->
+<script id="ct-data" type="application/json">__SKIDFUSCATOR_CLASSTREE__</script>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════
+   Catalog mirrors dev.skidfuscator.obfuscator.gui.TransformerPanel.
+   Each `id` IS the HOCON key the obfuscator reads (camelCase of the
+   transformer name). Defaults match defaultConfig.hocon and the
+   transformers' getConfig() fallbacks. type: bool | int | enum | string
+   ════════════════════════════════════════════════════════════════ */
+const CATALOG = [
+  { cat: "Strings", hint: "Encrypt literal strings and annotation values.", items: [
+    { id:"stringEncryption", name:"String Encryption", def:true,
+      desc:"Encrypts string constants. STANDARD is the only published mode today.",
+      opts:[ {key:"type", label:"Encryption type", type:"enum", values:["STANDARD"], def:"STANDARD"} ] },
+    { id:"stringAnnotationEncryption", name:"String Annotation Encryption", def:true, tag:"Late",
+      desc:"Encrypts string values stored in Java annotations during the late output pass." },
+    { id:"intAnnotationEncryption", name:"Int Annotation Encryption", def:true, tag:"Late",
+      desc:"Encrypts integer values stored in Java annotations during the late output pass." },
+  ]},
+
+  { cat: "Numbers & hashing", hint: "Polymorphic math, hashed comparisons and lookups.", items: [
+    { id:"numberEncryption", name:"Number Encryption", def:true,
+      desc:"Encrypts numeric literals using mathematical transformations and the seeded hash table." },
+    { id:"pureEncryption", name:"Pure Encryption", def:true,
+      desc:"Replaces pure-function calls with seeded hashed equivalents to harden return values." },
+    { id:"stringEqualsHash", name:"String Equals Hash", def:true,
+      desc:"Rewrites String.equals comparisons against constants into hashed checks." },
+    { id:"stringEqIgCaseHash", name:"String EqualsIgnoreCase Hash", def:true,
+      desc:"Rewrites String.equalsIgnoreCase comparisons into hashed checks." },
+    { id:"typeCheck", name:"Type Check (instanceof)", def:true,
+      desc:"Replaces direct instanceof / Class.isInstance checks with hashed lookups." },
+  ]},
+
+  { cat: "Control flow", hint: "Twist, split and re-route the method control-flow graph.", items: [
+    { id:"flowCondition", name:"Flow Condition", def:true,
+      desc:"Adds bogus conditions and opaque predicates to control-flow branches.",
+      opts:[
+        {key:"compressing.enabled", label:"Compress guard seed", type:"bool", def:false,
+         desc:"Hash the full 64-bit seed folded to 32 bits so a guard constant no longer reveals the seed. Requires Wide Seed."},
+        {key:"compressing.salt", label:"Non-linear fold", type:"bool", def:false,
+         desc:"Use a non-linear multiply-mix fold to resist cross-guard correlation. Requires guard compression."},
+      ] },
+    { id:"seed", name:"Wide Seed (64-bit)", def:false, tag:"Hardening", flag:"wide",
+      desc:"Thread the per-block flow seed as a 64-bit long instead of 32-bit, so a single guard read yields roughly 2^32 candidate seeds. Required by Flow Condition guard compression." },
+    { id:"flowException", name:"Flow Exception", def:true,
+      desc:"Wraps control flow in fake exception handlers to confuse decompilers.",
+      opts:[
+        {key:"strength", label:"Strength", type:"enum", values:["WEAK","GOOD","AGGRESSIVE"], def:"AGGRESSIVE"},
+        {key:"decoyCalls.enabled", label:"Decoy calls", type:"bool", def:false,
+         desc:"Replace fake failure throws with decoy calls to valid methods."},
+        {key:"decoyCalls.scope", label:"Decoy scope", type:"enum", values:["APPLICATION","APPLICATION_AND_EXEMPT"], def:"APPLICATION_AND_EXEMPT"},
+        {key:"decoyCalls.includeLibraries", label:"Library decoys", type:"bool", def:false,
+         desc:"Allow public library static methods as decoy call targets."},
+        {key:"decoyCalls.maxArgs", label:"Max decoy args", type:"int", def:5},
+      ] },
+    { id:"flowRange", name:"Flow Range", def:true,
+      desc:"Splits loops and iterative structures to break decompiler heuristics." },
+    { id:"flowSwitch", name:"Flow Switch", def:true,
+      desc:"Rewrites tableswitch / lookupswitch blocks with seeded keys." },
+  ]},
+
+  { cat: "Inter-procedural", hint: "Cross-method seed plumbing, the spine other passes ride on.", items: [
+    { id:"interprocedural", name:"Interprocedural", def:true,
+      desc:"Threads obfuscation seeds through the call graph. Required by other passes.",
+      opts:[ {key:"threadStaticMethods", label:"Thread static methods", type:"bool", def:true,
+        desc:"Thread the flow seed through static-method call edges (adds a hidden int parameter to threaded static methods)."} ] },
+    { id:"flowFactoryMaker", name:"Flow Factory Maker", def:true,
+      desc:"Materialises seed factories for inter-procedural flow obfuscation." },
+    { id:"interproceduralHarden", name:"Interprocedural Harden", def:true,
+      desc:"Hardens the seed plumbing with extra randomisation per call-site." },
+    { id:"interproceduralPredicate", name:"Predicate Seed Storage", def:true,
+      desc:"Controls the base predicate renderer.",
+      opts:[ {key:"dynamicClassPredicates", label:"Dynamic class predicates", type:"bool", def:false,
+        desc:"Store class/static predicates in private static fields instead of inlining constants."} ] },
+  ]},
+
+  { cat: "Hardening", hint: "SDK, integrity mesh, and structural passes. Several are off by default; test before shipping.", items: [
+    { id:"sdk", name:"SDK Injector", def:true,
+      desc:"Injects the Skidfuscator runtime SDK into the output jar. Required by SDK-dependent passes such as tamper protection." },
+    { id:"tamperProtection", name:"Tamper Protection", def:false, tag:"Hardening",
+      desc:"Cross-class self-integrity mesh: each protected class verifies a sibling's whole-file checksum at load time, so patching one class trips a checker in another. Requires the SDK.",
+      opts:[ {key:"action", label:"On tamper", type:"enum", values:["THROW","EXIT","SILENT"], def:"THROW",
+        desc:"THROW raises an error at the check; EXIT halts the JVM; SILENT lets the check pass then arms a deferred, off-thread halt (hardest to trace)."} ] },
+    { id:"signatureObfuscation", name:"Signature Obfuscation", def:false, tag:"Risky",
+      desc:"Rewrites internally-called method signatures into (byte[], Object[]) carriers. Arguments packed into carriers, and/or the return wrapped into a carrier array.",
+      opts:[
+        {key:"arguments", label:"Pack arguments", type:"bool", def:true,
+         desc:"Collapse the parameter list into (byte[], Object[]) carriers."},
+        {key:"returns", label:"Wrap returns", type:"bool", def:false,
+         desc:"Wrap the return value into a carrier array; callers unpack transparently."},
+        {key:"returnThreadKey", label:"Thread key in return", type:"bool", def:false,
+         desc:"Append the method's threaded flow seed as the last slot of the wrapped return array. Requires Wrap returns."},
+      ] },
+    { id:"methodDispatch", name:"Method Dispatch", def:false, tag:"Risky",
+      desc:"Funnels eligible calls through a per-class dispatcher that lookupswitches on a hashed signature key, hiding the real target.",
+      opts:[
+        {key:"scope", label:"Scope", type:"enum", values:["APP_ONLY","INCLUDE_LIBRARY","STATIC_ONLY"], def:"APP_ONLY",
+         desc:"APP_ONLY = application targets; INCLUDE_LIBRARY = also library targets; STATIC_ONLY = only invokestatic."},
+        {key:"maxPerDispatcher", label:"Max targets / dispatcher", type:"int", def:64},
+        {key:"decoyDefaultCalls", label:"Default decoy calls", type:"bool", def:false,
+         desc:"Emit calls to real targets in the unreachable default path before the safety throw."},
+      ] },
+    { id:"methodMerge", name:"Method Merge", def:false, tag:"Risky",
+      desc:"Aggregates compatible threaded methods into synthetic seed-dispatched host methods.",
+      opts:[
+        {key:"maxPerHost", label:"Max methods / host", type:"int", def:16},
+        {key:"maxHostInsns", label:"Max host instructions", type:"int", def:20000},
+      ] },
+    { id:"methodCallObfuscation", name:"Method Call Obfuscation", def:false, tag:"Risky",
+      desc:"Rewrites eligible method calls into invokedynamic callsites with per-class bootstrap resolvers." },
+    { id:"outliner", name:"Outliner", def:true, tag:"Late",
+      desc:"Outlines instruction blocks into synthetic helper methods during the late output pass." },
+    { id:"constructorObfuscation", name:"Constructor Obfuscation", def:false, tag:"Risky",
+      desc:"Allows eligible transformers to process constructor bodies after super()/this() initialization." },
+    { id:"ahegao", name:"Ahegao", def:true,
+      desc:"Cosmetic / fingerprinting transformer. Mostly harmless." },
+    { id:"fileCrasher", name:"File Crasher", def:false, tag:"Risky",
+      desc:"Inserts malformed metadata that breaks naive decompilers. Some JVMs reject it." },
+  ]},
+
+  { cat: "Unwired", hint: "Present in older configs but not consumed by the current build, so toggling them has no effect. Shown for completeness.", unwired:true, items: [
+    { id:"reference", name:"Reference Hardening", def:false, tag:"Unwired",
+      desc:"Hardens method / field reference resolution." },
+    { id:"exceptionReturn", name:"Exception Return", def:true, tag:"Unwired",
+      desc:"Replaces ordinary returns with exception-driven control-flow exits." },
+    { id:"driver", name:"Driver", def:false, tag:"Unwired",
+      desc:"Wraps the program with a launch driver.",
+      opts:[ {key:"path", label:"Driver path", type:"string", def:"skid/Driver"} ] },
+    { id:"native", name:"Native", def:false, tag:"Unwired",
+      desc:"Converts selected methods to native implementations." },
+    { id:"classRenamer", name:"Class Renamer", def:false, tag:"Unwired",
+      desc:"Renames classes. Not wired to the obfuscator runtime; use ProGuard pre-processing instead.",
+      opts:[
+        {key:"type", label:"Scheme", type:"enum", values:["ALPHABETICAL","CUSTOM"], def:"CUSTOM"},
+        {key:"prefix", label:"Package prefix", type:"string", def:"skido/"},
+        {key:"depth", label:"Depth", type:"int", def:3},
+      ] },
+    { id:"methodRenamer", name:"Method Renamer", def:false, tag:"Unwired",
+      desc:"Renames methods. Not wired to the obfuscator runtime.",
+      opts:[
+        {key:"type", label:"Scheme", type:"enum", values:["ALPHABETICAL","CUSTOM"], def:"CUSTOM"},
+        {key:"depth", label:"Depth", type:"int", def:3},
+      ] },
+    { id:"fieldRenamer", name:"Field Renamer", def:false, tag:"Unwired",
+      desc:"Renames fields. Not wired to the obfuscator runtime.",
+      opts:[ {key:"type", label:"Scheme", type:"enum", values:["ALPHABETICAL","CUSTOM"], def:"ALPHABETICAL"} ] },
+  ]},
+];
+
+const DEFAULT_EXEMPTIONS = [
+  "class{^jghost\\/}", "class{Dump}", "class{^org\\/jnativehook\\/}", "class{^com\\/sun\\/jna\\/}",
+];
+
+const GRADLE = {
+  pluginVersion: { label:"Plugin version", type:"text", def:"0.1.4",
+    desc:"Version from the Gradle Plugin Portal (id 'dev.skidfuscator')." },
+  configFile:    { label:"HOCON file name", type:"text", def:"skidfuscator.hocon",
+    desc:"Written next to build.gradle; referenced via configFile." },
+  sourceSet:     { label:"Source set", type:"text", def:"main",
+    desc:"Java source set whose jar and runtimeClasspath are obfuscated." },
+  minimizeDependencies: { label:"Minimize dependencies", type:"bool", def:false,
+    desc:"Run the dependency analyzer and keep only hierarchy-needed jars." },
+  phantom:  { label:"Phantom (-ph)", type:"bool", def:false, desc:"Generate phantom stubs for unresolved references." },
+  debug:    { label:"Debug output (-dbg)", type:"bool", def:false, desc:"Verbose obfuscator logging." },
+  fuckit:   { label:"Force through errors (-fuckit)", type:"bool", def:false, desc:"Push through recoverable errors instead of aborting." },
+  analytics:{ label:"Send anonymous analytics", type:"bool", def:false, desc:"When off, passes -notrack. Off by default." },
+};
+
+const PRESETS = {
+  "Recommended": { tip:"sane defaults", state:{} },
+  "Light":       { tip:"encryption only", state:{
+    flowCondition:false, flowException:false, flowRange:false, flowSwitch:false,
+    pureEncryption:false, stringEqualsHash:false, stringEqIgCaseHash:false, typeCheck:false,
+    outliner:false, ahegao:false } },
+  "Hardened":    { tip:"flow + integrity", state:{
+    seed:true,
+    flowCondition:{enabled:true, "compressing.enabled":true, "compressing.salt":true},
+    tamperProtection:{enabled:true, action:"SILENT"},
+    "flowException.strength":"AGGRESSIVE" } },
+  "Maximum":     { tip:"everything safe-ish, test it", state:{
+    seed:true,
+    flowCondition:{enabled:true, "compressing.enabled":true, "compressing.salt":true},
+    tamperProtection:{enabled:true, action:"SILENT"},
+    signatureObfuscation:{enabled:true, arguments:true, returns:true, returnThreadKey:true},
+    methodDispatch:{enabled:true}, methodMerge:{enabled:true} } },
+};
+
+const RISKY = ["signatureObfuscation","methodDispatch","methodMerge","methodCallObfuscation","constructorObfuscation","fileCrasher"];
+
+/* ──────────────────────────── state ──────────────────────────── */
+const byId = {};
+CATALOG.forEach(c => c.items.forEach(it => byId[it.id] = it));
+const state = {};
+const gradle = {};
+let activeOut = "hocon";
+
+function resetState() {
+  for (const id in byId) {
+    const it = byId[id];
+    const opts = {};
+    (it.opts || []).forEach(o => opts[o.key] = o.def);
+    state[id] = { enabled: !!it.def, opts };
+  }
+  for (const k in GRADLE) gradle[k] = GRADLE[k].def;
+}
+
+function applyPreset(name) {
+  resetState();
+  const st = PRESETS[name].state;
+  for (const key in st) {
+    const v = st[key];
+    if (key.indexOf(".") > -1 && !byId[key]) {
+      const id = key.slice(0, key.indexOf("."));
+      const ok = key.slice(key.indexOf(".") + 1);
+      if (state[id]) state[id].opts[ok] = v;
+    } else if (typeof v === "object") {
+      if (!state[key]) continue;
+      if ("enabled" in v) state[key].enabled = v.enabled;
+      for (const ok in v) if (ok !== "enabled") state[key].opts[ok] = v[ok];
+    } else {
+      if (state[key]) state[key].enabled = v;
+    }
+  }
+  buildGradleForm();
+  renderCatalog();
+  render();
+}
+
+/* ──────────────────────────── helpers ────────────────────────── */
+const $ = sel => document.querySelector(sel);
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function svgChevron(){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';}
+
+function makeSwitch(checked, onChange, label) {
+  const lab = document.createElement("label");
+  lab.className = "switch";
+  const inp = document.createElement("input");
+  inp.type = "checkbox"; inp.checked = !!checked;
+  if (label) inp.setAttribute("aria-label", label);
+  const trk = document.createElement("span"); trk.className = "track";
+  inp.addEventListener("change", () => onChange(inp.checked));
+  lab.appendChild(inp); lab.appendChild(trk);
+  return lab;
+}
+
+/* ──────────────────────────── nav ────────────────────────────── */
+function buildNav() {
+  const nav = $("#nav");
+  nav.innerHTML = "";
+  const fixed = [["sec-presets","Presets"],["sec-plugin","Gradle plugin"],["sec-exempt","Exemptions"]];
+  fixed.forEach(([id,label]) => nav.appendChild(navLink(id, label, null)));
+  const g = document.createElement("div"); g.className = "group"; g.textContent = "Transformers";
+  nav.appendChild(g);
+  CATALOG.forEach(cat => nav.appendChild(navLink("sec-" + slug(cat.cat), cat.cat, cat)));
+}
+function navLink(id, label, cat) {
+  const a = document.createElement("a");
+  a.href = "#" + id; a.dataset.target = id;
+  a.innerHTML = `<span class="label">${esc(label)}</span>` + (cat ? `<span class="cnt" data-cat="${slug(cat.cat)}"></span>` : "");
+  return a;
+}
+function updateNavCounts() {
+  CATALOG.forEach(cat => {
+    const el = $(`.cnt[data-cat="${slug(cat.cat)}"]`);
+    if (!el) return;
+    const n = cat.items.filter(it => state[it.id].enabled).length;
+    el.textContent = n ? n : "";
+  });
+}
+
+/* ──────────────────────────── presets ────────────────────────── */
+function buildPresets() {
+  const host = $("#presets"); host.innerHTML = "";
+  Object.keys(PRESETS).forEach(name => {
+    const b = document.createElement("button");
+    b.className = "preset"; b.type = "button";
+    b.innerHTML = `<span class="pn">${name}</span><span class="pt">${PRESETS[name].tip}</span>`;
+    b.onclick = () => applyPreset(name);
+    host.appendChild(b);
+  });
+}
+
+/* ──────────────────────────── gradle form ────────────────────── */
+function buildGradleForm() {
+  const host = $("#gradleForm"); host.innerHTML = "";
+  for (const key in GRADLE) {
+    const g = GRADLE[key];
+    if (g.type === "bool") {
+      const f = document.createElement("div"); f.className = "switchfield";
+      const sw = makeSwitch(gradle[key], v => { gradle[key] = v; render(); }, g.label);
+      const meta = document.createElement("div"); meta.className = "meta";
+      meta.innerHTML = `<label>${g.label}</label><span class="hint">${g.desc}</span>`;
+      f.appendChild(sw); f.appendChild(meta); host.appendChild(f);
+    } else {
+      const f = document.createElement("div"); f.className = "field";
+      f.innerHTML = `<label for="g_${key}">${g.label}</label>`;
+      const inp = document.createElement("input"); inp.type = "text"; inp.id = "g_" + key; inp.value = gradle[key];
+      inp.addEventListener("input", () => { gradle[key] = inp.value; render(); });
+      const h = document.createElement("span"); h.className = "hint"; h.textContent = g.desc;
+      f.appendChild(inp); f.appendChild(h); host.appendChild(f);
+    }
+  }
+}
+
+/* ──────────────────────────── catalog ────────────────────────── */
+function renderCatalog() {
+  // remove previously injected transformer sections
+  document.querySelectorAll(".section.cat").forEach(s => s.remove());
+  const editor = $("#editor");
+  CATALOG.forEach(cat => {
+    const sec = document.createElement("section");
+    sec.className = "section cat"; sec.id = "sec-" + slug(cat.cat);
+    sec.dataset.sec = ""; sec.dataset.label = cat.cat;
+    sec.innerHTML = `<h2>${esc(cat.cat)}</h2><p class="sub">${esc(cat.hint)}</p>`;
+
+    if (cat.unwired) {
+      const det = document.createElement("details"); det.className = "zone";
+      det.innerHTML = `<summary><span class="tw">›</span><span>Show ${cat.items.length} unwired keys</span></summary>`;
+      const list = document.createElement("div"); list.className = "list";
+      cat.items.forEach(it => list.appendChild(makeRow(it, true)));
+      det.appendChild(list); sec.appendChild(det);
+    } else {
+      const list = document.createElement("div"); list.className = "list";
+      cat.items.forEach(it => list.appendChild(makeRow(it, false)));
+      sec.appendChild(list);
+    }
+    editor.appendChild(sec);
+  });
+}
+
+function makeRow(it, unwired) {
+  const st = state[it.id];
+  const row = document.createElement("div");
+  row.className = "row" + (st.enabled ? " on" : "") + (unwired ? " unwired" : "");
+
+  const head = document.createElement("div"); head.className = "row-head";
+  const sw = makeSwitch(st.enabled, v => { st.enabled = v; row.classList.toggle("on", v); render(); }, it.name);
+
+  const main = document.createElement("div"); main.className = "row-main";
+  const tag = it.tag ? `<span class="badge ${it.tag.toLowerCase()}">${it.tag}</span>` : "";
+  main.innerHTML = `<div class="row-title"><span class="nm">${esc(it.name)}</span>
+    <span class="key">${it.id}${it.flag ? "." + it.flag : ""}</span>${tag}</div>
+    <div class="row-desc">${esc(it.desc)}</div>`;
+
+  const hasOpts = it.opts && it.opts.length;
+  const exp = document.createElement("button");
+  exp.className = "expander" + (hasOpts ? "" : " none"); exp.type = "button";
+  exp.innerHTML = svgChevron();
+  if (hasOpts) { exp.setAttribute("aria-label", "Toggle options for " + it.name); exp.setAttribute("aria-expanded", "false"); }
+
+  head.appendChild(sw); head.appendChild(main); head.appendChild(exp);
+  row.appendChild(head);
+
+  if (hasOpts) {
+    const opts = document.createElement("div"); opts.className = "opts";
+    it.opts.forEach(o => opts.appendChild(makeOption(it.id, o)));
+    row.appendChild(opts);
+    exp.onclick = () => {
+      const open = opts.classList.toggle("open");
+      exp.classList.toggle("open", open);
+      exp.setAttribute("aria-expanded", String(open));
+    };
+  }
+  return row;
+}
+
+function makeOption(id, o) {
+  const st = state[id]; const cur = st.opts[o.key];
+  const f = document.createElement("div"); f.className = "opt";
+  if (o.type === "bool") {
+    f.className = "opt switchfield";
+    const sw = makeSwitch(cur, v => { st.opts[o.key] = v; render(); }, o.label);
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.innerHTML = `<label>${o.label}</label>${o.desc ? `<span class="hint">${esc(o.desc)}</span>` : ""}`;
+    f.appendChild(sw); f.appendChild(meta);
+  } else if (o.type === "enum") {
+    f.className = "opt field";
+    const sel = document.createElement("select"); sel.setAttribute("aria-label", o.label);
+    o.values.forEach(v => { const op = document.createElement("option"); op.value = v; op.textContent = v; if (v === cur) op.selected = true; sel.appendChild(op); });
+    sel.addEventListener("change", () => { st.opts[o.key] = sel.value; render(); });
+    f.innerHTML = `<label>${o.label}</label>`; f.appendChild(sel);
+    if (o.desc) { const d = document.createElement("span"); d.className = "hint"; d.textContent = o.desc; f.appendChild(d); }
+  } else {
+    f.className = "opt field";
+    f.innerHTML = `<label>${o.label}</label>`;
+    const inp = document.createElement("input"); inp.type = "text"; inp.value = cur; inp.setAttribute("aria-label", o.label);
+    inp.addEventListener("input", () => {
+      st.opts[o.key] = (o.type === "int") ? (inp.value.trim() === "" ? "" : Number(inp.value)) : inp.value;
+      render();
+    });
+    f.appendChild(inp);
+    if (o.desc) { const d = document.createElement("span"); d.className = "hint"; d.textContent = o.desc; f.appendChild(d); }
+  }
+  return f;
+}
+
+/* ──────────────────────── generation (verified core) ─────────── */
+function hoconStr(s){return '"' + String(s).replace(/\\/g,"\\\\").replace(/"/g,'\\"') + '"';}
+
+/* ──────────────────────── exemption class tree ───────────────────
+   The Gradle task injects the project's class tree into #ct-data. Each
+   node tracks a leaf count (total) and how many are ticked (checkedCount),
+   so folder tri-state and pattern generation are O(touched) per click. */
+let rootNode = null;
+let treeBoxes = [];                       // [{node, box}] currently mounted in the DOM
+(function loadTree() {
+  const raw = ((document.getElementById("ct-data") || {}).textContent || "").trim();
+  if (raw && raw.charAt(0) === "{") {
+    try { rootNode = buildNode("", "", JSON.parse(raw), null); } catch (e) { rootNode = null; }
+  }
+})();
+function buildNode(name, path, raw, parent) {
+  const node = { name, path, parent, isClass: false, dirs: [], classes: [], total: 0, checkedCount: 0, checked: false, built: false };
+  const d = raw.d || {};
+  Object.keys(d).forEach(k => {
+    const child = buildNode(k, path ? path + "/" + k : k, d[k], node);
+    node.dirs.push(child); node.total += child.total;
+  });
+  (raw.c || []).forEach(c => {
+    node.classes.push({ name: c, path: path ? path + "/" + c : c, parent: node, isClass: true, total: 1, checked: false });
+    node.total += 1;
+  });
+  return node;
+}
+function folderState(n) { return n.checkedCount === 0 ? "none" : (n.checkedCount === n.total ? "all" : "some"); }
+function setLeaf(leaf, v) {
+  if (leaf.checked === v) return;
+  leaf.checked = v;
+  const delta = v ? 1 : -1;
+  for (let p = leaf.parent; p; p = p.parent) p.checkedCount += delta;
+}
+function setFolder(node, v) {
+  (function mark(n) { if (n.isClass) n.checked = v; else { n.dirs.forEach(mark); n.classes.forEach(mark); } })(node);
+  const delta = (v ? node.total : 0) - node.checkedCount;
+  (function counts(n) { n.dirs.forEach(counts); n.checkedCount = v ? n.total : 0; })(node);
+  for (let p = node.parent; p; p = p.parent) p.checkedCount += delta;
+}
+function applyBoxState(node, box) {
+  if (node.isClass) { box.checked = node.checked; box.indeterminate = false; }
+  else { const s = folderState(node); box.checked = s === "all"; box.indeterminate = s === "some"; }
+}
+function refreshBoxes() { treeBoxes.forEach(p => applyBoxState(p.node, p.box)); updateTreeStat(); }
+function updateTreeStat() {
+  const el = document.getElementById("treeStat");
+  if (el && rootNode) el.textContent = rootNode.checkedCount + " / " + rootNode.total + " classes exempt";
+}
+function makeTNode(node) {
+  const wrap = document.createElement("div");
+  const row = document.createElement("div"); row.className = "trow";
+  const hasKids = !node.isClass && (node.dirs.length || node.classes.length);
+  const caret = document.createElement("span"); caret.className = "tcaret" + (hasKids ? "" : " none"); caret.textContent = "▸";
+  const box = document.createElement("input"); box.type = "checkbox"; box.className = "tcheck"; box.setAttribute("aria-label", node.path || node.name);
+  const name = document.createElement("span"); name.className = "tname " + (node.isClass ? "cls" : "dir"); name.textContent = node.name;
+  row.appendChild(caret); row.appendChild(box); row.appendChild(name);
+  if (!node.isClass) { const cnt = document.createElement("span"); cnt.className = "tcount"; cnt.textContent = node.total; row.appendChild(cnt); }
+  wrap.appendChild(row);
+  if (hasKids) {
+    const kids = document.createElement("div"); kids.className = "tchildren"; wrap.appendChild(kids);
+    const toggle = () => {
+      const open = kids.classList.toggle("open"); caret.classList.toggle("open", open);
+      if (open && !node.built) {
+        node.built = true;
+        node.dirs.forEach(c => kids.appendChild(makeTNode(c)));
+        node.classes.forEach(c => kids.appendChild(makeTNode(c)));
+        refreshBoxes();
+      }
+    };
+    caret.onclick = toggle; name.onclick = toggle;
+  }
+  box.addEventListener("change", () => {
+    if (node.isClass) setLeaf(node, box.checked); else setFolder(node, box.checked);
+    refreshBoxes(); render();
+  });
+  treeBoxes.push({ node, box }); applyBoxState(node, box);
+  return wrap;
+}
+function renderTree() {
+  const host = document.getElementById("tree"); host.innerHTML = ""; treeBoxes = [];
+  rootNode.dirs.forEach(n => host.appendChild(makeTNode(n)));
+  rootNode.classes.forEach(n => host.appendChild(makeTNode(n)));
+  refreshBoxes();
+}
+function renderTreeSearch(q) {
+  const host = document.getElementById("tree"); host.innerHTML = ""; treeBoxes = [];
+  const needle = q.toLowerCase(); const matches = [];
+  (function walk(n) {
+    if (n !== rootNode && n.path.toLowerCase().indexOf(needle) >= 0) matches.push(n);
+    if (!n.isClass) { n.dirs.forEach(walk); n.classes.forEach(walk); }
+  })(rootNode);
+  matches.slice(0, 400).forEach(node => {
+    const row = document.createElement("div"); row.className = "trow";
+    const box = document.createElement("input"); box.type = "checkbox"; box.className = "tcheck";
+    const name = document.createElement("span"); name.className = "tname " + (node.isClass ? "cls" : "dir");
+    name.textContent = node.path + (node.isClass ? "" : "/");
+    row.appendChild(box); row.appendChild(name);
+    box.addEventListener("change", () => { if (node.isClass) setLeaf(node, box.checked); else setFolder(node, box.checked); refreshBoxes(); render(); });
+    host.appendChild(row); treeBoxes.push({ node, box }); applyBoxState(node, box);
+  });
+  if (matches.length > 400) { const m = document.createElement("div"); m.className = "tree-more"; m.textContent = "+" + (matches.length - 400) + " more, refine the filter"; host.appendChild(m); }
+  if (!matches.length) { const m = document.createElement("div"); m.className = "tree-more"; m.textContent = "No matches."; host.appendChild(m); }
+  updateTreeStat();
+}
+function treePatterns() {
+  if (!rootNode) return [];
+  const out = [];
+  (function collect(n) {
+    if (n.isClass) { if (n.checked) out.push("class{^" + n.path + "}"); return; }
+    if (n !== rootNode) {
+      const s = folderState(n);
+      if (s === "none") return;
+      if (s === "all") { out.push("class{^" + n.path + "/}"); return; }
+    }
+    n.dirs.forEach(collect); n.classes.forEach(collect);
+  })(rootNode);
+  return out;
+}
+function exemptList() {
+  const manual = $("#exempt").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const seen = {}, out = [];
+  treePatterns().concat(manual).forEach(p => { if (!seen[p]) { seen[p] = 1; out.push(p); } });
+  return out;
+}
+
+function isDefault(it, st) {
+  if (it.flag) return st.enabled === !!it.def;
+  if (st.enabled !== !!it.def) return false;
+  for (const o of (it.opts || [])) if (String(st.opts[o.key]) !== String(o.def)) return false;
+  return true;
+}
+function transformerObject(it, st) {
+  if (it.flag) { const o = {}; o[it.flag] = st.enabled; return o; }
+  const obj = { enabled: st.enabled };
+  (it.opts || []).forEach(o => {
+    let v = st.opts[o.key];
+    if (o.type === "int" && (v === "" || v === null || (typeof v === "number" && isNaN(v)))) return;
+    if (String(v) === String(o.def)) return;
+    const parts = o.key.split(".");
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) { if (typeof cur[parts[i]] !== "object") cur[parts[i]] = {}; cur = cur[parts[i]]; }
+    cur[parts[parts.length - 1]] = { __type:o.type, val:v };
+  });
+  return obj;
+}
+function renderValue(v) {
+  if (v && typeof v === "object" && "__type" in v) return v.__type === "string" ? hoconStr(v.val) : String(v.val);
+  return String(v);
+}
+function renderHoconObj(obj, indent) {
+  const pad = "  ".repeat(indent); let out = "";
+  for (const k in obj) {
+    const v = obj[k];
+    if (v && typeof v === "object" && !("__type" in v)) out += `${pad}${k} {\n` + renderHoconObj(v, indent + 1) + `${pad}}\n`;
+    else out += `${pad}${k} = ${renderValue(v)}\n`;
+  }
+  return out;
+}
+function genHocon() {
+  let out = "# Skidfuscator configuration\n";
+  out += "# Generated by the Gradle configurator. Referenced from build.gradle via\n";
+  out += "#   skidfuscator { configFile = layout.projectDirectory.file('" + (gradle.configFile||"skidfuscator.hocon") + "') }\n";
+  out += "# Only non-default settings are written, so this file stays readable.\n\n";
+  const ex = exemptList();
+  if (ex.length) out += "exempt = [\n" + ex.map(e => "  " + hoconStr(e)).join("\n") + "\n]\n\n";
+  let wrote = false;
+  CATALOG.forEach(cat => cat.items.forEach(it => {
+    const st = state[it.id];
+    if (isDefault(it, st)) return;
+    out += `${it.id} {\n` + renderHoconObj(transformerObject(it, st), 1) + `}\n\n`;
+    wrote = true;
+  }));
+  if (!wrote && !ex.length) out += "# (everything at defaults, nothing to override)\n";
+  return out.trimEnd() + "\n";
+}
+function gradleSkidLines(q, assign) {
+  const lines = [];
+  lines.push(assign("configFile", "layout.projectDirectory.file(" + q + (gradle.configFile||"skidfuscator.hocon") + q + ")"));
+  if ((gradle.sourceSet||"main") !== "main") lines.push(assign("sourceSet", q + gradle.sourceSet + q));
+  ["minimizeDependencies","phantom","debug","fuckit","analytics"].forEach(k => {
+    if (gradle[k] !== GRADLE[k].def) lines.push(assign(k, String(gradle[k])));
+  });
+  return lines;
+}
+function genGroovy() {
+  const v = gradle.pluginVersion || "0.1.4";
+  const body = gradleSkidLines("'", (k, val) => `    ${k} = ${val}`).join("\n");
+  return `plugins {\n    id 'java'\n    id 'dev.skidfuscator' version '${v}'\n}\n\nskidfuscator {\n${body}\n\n    // Per-transformer options live in ${gradle.configFile||"skidfuscator.hocon"} (above).\n    // Extra runtime libraries beyond runtimeClasspath, if any:\n    // library(file('libs/extra.jar'))\n}\n`;
+}
+function genKotlin() {
+  const v = gradle.pluginVersion || "0.1.4";
+  const body = gradleSkidLines('"', (k, val) => `    ${k} = ${val}`).join("\n");
+  return `plugins {\n    java\n    id("dev.skidfuscator") version "${v}"\n}\n\nskidfuscator {\n${body}\n\n    // Per-transformer options live in ${gradle.configFile||"skidfuscator.hocon"} (above).\n    // Extra runtime libraries beyond runtimeClasspath, if any:\n    // library(file("libs/extra.jar"))\n}\n`;
+}
+
+/* ──────────────────────── validation ─────────────────────────── */
+function warnings() {
+  const w = [];
+  const en = id => state[id] && state[id].enabled;
+  const opt = (id, k) => state[id] && state[id].opts[k];
+  if (opt("flowCondition","compressing.enabled") && !en("seed"))
+    w.push("Flow Condition guard compression requires Wide Seed (64-bit); enable the 'seed' card or it is force-disabled at runtime.");
+  if (opt("flowCondition","compressing.salt") && !opt("flowCondition","compressing.enabled"))
+    w.push("Non-linear fold needs 'Compress guard seed' enabled first.");
+  if (opt("signatureObfuscation","returnThreadKey") && !opt("signatureObfuscation","returns"))
+    w.push("'Thread key in return' requires 'Wrap returns' enabled.");
+  if (en("tamperProtection") && !en("sdk"))
+    w.push("Tamper Protection requires the SDK Injector; enable the 'sdk' card.");
+  const risky = RISKY.filter(en).map(id => byId[id].name);
+  if (risky.length) w.push("Risky passes on: " + risky.join(", ") + ". Run your app's tests against the obfuscated jar.");
+  return w;
+}
+
+/* ──────────────────────── highlight + render ─────────────────── */
+const FILES = {
+  hocon:  { name: () => gradle.configFile || "skidfuscator.hocon", gen: genHocon,  note: "place next to build.gradle" },
+  groovy: { name: () => "build.gradle",     gen: genGroovy, note: "Groovy DSL" },
+  kotlin: { name: () => "build.gradle.kts", gen: genKotlin, note: "Kotlin DSL" },
+};
+function highlight(text, kind) {
+  let t = esc(text);
+  if (kind === "hocon") {
+    t = t.replace(/^(\s*#.*)$/gm, '<span class="c">$1</span>');
+    t = t.replace(/^(\s*)([A-Za-z0-9_.]+)(\s*)(\{)/gm, '$1<span class="k">$2</span>$3<span class="p">$4</span>');
+    t = t.replace(/^(\s*)([A-Za-z0-9_.]+)(\s*=\s*)(.*)$/gm, (m,p,k,eq,val) => {
+      let vv;
+      if (/^&quot;.*&quot;$/.test(val)) vv = `<span class="s">${val}</span>`;
+      else if (/^(true|false|-?\d+)$/.test(val)) vv = `<span class="b">${val}</span>`;
+      else vv = `<span class="e">${val}</span>`;
+      return `${p}<span class="k">${k}</span>${eq}${vv}`;
+    });
+    t = t.replace(/(&quot;[^&]*?&quot;)/g, m => m.includes('class="') ? m : `<span class="s">${m}</span>`);
+  } else {
+    t = t.replace(/(\/\/.*)$/gm, '<span class="c">$1</span>');
+    t = t.replace(/(&#39;[^&]*?&#39;|&quot;[^&]*?&quot;)/g, '<span class="s">$1</span>');
+    t = t.replace(/\b(true|false|\d+)\b/g, '<span class="b">$1</span>');
+    t = t.replace(/\b(plugins|skidfuscator|id|java|version)\b(?![^<]*<\/span>)/g, '<span class="k">$1</span>');
+  }
+  return t;
+}
+function updateSummary() {
+  let active = 0;
+  CATALOG.forEach(cat => { if (!cat.unwired) cat.items.forEach(it => { if (state[it.id].enabled) active++; }); });
+  const risky = RISKY.filter(id => state[id] && state[id].enabled).length;
+  $("#summary").innerHTML =
+    `<span class="stat"><span class="dot"></span><b>${active}</b> passes active</span>` +
+    `<span class="stat risk${risky ? "" : " none"}"><span class="dot"></span><b>${risky}</b> risky</span>`;
+}
+function render() {
+  const f = FILES[activeOut];
+  const text = f.gen();
+  $("#code").innerHTML = highlight(text, activeOut === "hocon" ? "hocon" : "gradle");
+  $("#fileName").textContent = f.name();
+  $("#fileNote").textContent = f.note;
+  $("#pluginId").innerHTML = `<b>dev.skidfuscator</b> ${esc(gradle.pluginVersion || "")}`;
+  updateSummary();
+  updateNavCounts();
+
+  const c = $("#consistency"); c.innerHTML = "";
+  const ws = warnings();
+  if (!ws.length) {
+    c.innerHTML = `<div class="ci ok"><span class="ic">✓</span><span>No conflicts. Config is consistent.</span></div>`;
+  } else {
+    ws.forEach(msg => {
+      const d = document.createElement("div"); d.className = "ci warn";
+      d.innerHTML = `<span class="ic">▲</span><span>${esc(msg)}</span>`;
+      c.appendChild(d);
+    });
+  }
+}
+
+/* ──────────────────────── actions ────────────────────────────── */
+function toast(msg) {
+  const t = $("#toast"); t.innerHTML = `<span class="ic">✓</span>${esc(msg)}`; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1500);
+}
+function copyText(text) {
+  const done = () => toast("Copied " + FILES[activeOut].name());
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fallback);
+  } else fallback();
+  function fallback() {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) { toast("Copy failed, select manually"); }
+    document.body.removeChild(ta);
+  }
+}
+function download(text, name) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+  toast("Downloaded " + name);
+}
+
+/* ──────────────────────── scrollspy ──────────────────────────── */
+function initScrollspy() {
+  const links = Array.from(document.querySelectorAll(".nav a"));
+  const map = {}; links.forEach(a => map[a.dataset.target] = a);
+  const secs = () => Array.from(document.querySelectorAll(".section[data-sec]"));
+  let current = null;
+  function update() {
+    const line = 120;                       // reading line just below the app bar
+    let cur = null;
+    for (const s of secs()) { if (s.getBoundingClientRect().top <= line) cur = s; }
+    if (!cur) cur = secs()[0];
+    if (!cur || cur.id === current) return;
+    current = cur.id;
+    links.forEach(a => a.classList.toggle("active", a.dataset.target === cur.id));
+  }
+  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("resize", update, { passive: true });
+  update();
+}
+
+/* ──────────────────────── init ───────────────────────────────── */
+function init() {
+  resetState();
+  $("#exempt").value = DEFAULT_EXEMPTIONS.map(e => e.replace(/\\\\/g, "\\")).join("\n");
+
+  // Class-tree exemption picker (populated by the Gradle task; manual fallback otherwise).
+  if (rootNode && (rootNode.dirs.length || rootNode.classes.length)) {
+    $("#treePanel").style.display = "";
+    $("#treeEmpty").style.display = "none";
+    renderTree();
+    const search = $("#treeSearch");
+    search.addEventListener("input", () => {
+      const q = search.value.trim();
+      if (q) renderTreeSearch(q); else renderTree();
+    });
+    $("#treeClear").addEventListener("click", () => {
+      setFolder(rootNode, false);
+      const q = $("#treeSearch").value.trim();
+      if (q) renderTreeSearch(q); else renderTree();
+      render();
+    });
+  } else {
+    $("#treePanel").style.display = "none";
+    $("#treeEmpty").style.display = "";
+  }
+
+  buildNav();
+  buildPresets();
+  buildGradleForm();
+  renderCatalog();
+
+  document.querySelectorAll(".ftab").forEach(tab => tab.addEventListener("click", () => {
+    document.querySelectorAll(".ftab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active"); activeOut = tab.dataset.out; render();
+  }));
+  $("#exempt").addEventListener("input", render);
+  $("#copyBtn").addEventListener("click", () => copyText(FILES[activeOut].gen()));
+  $("#dlBtn").addEventListener("click", () => download(FILES[activeOut].gen(), FILES[activeOut].name()));
+
+  initScrollspy();
+  render();
+}
+init();
+</script>
+</body>
+</html>

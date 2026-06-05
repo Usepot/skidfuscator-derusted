@@ -49,8 +49,15 @@
 > }
 > 
 > skidfuscator {
->   // Configure the plugin here
->   skidfuscatorVersion = "latest"
+>   // Optional: use an existing HOCON config
+>   configFile = layout.projectDirectory.file("skidfuscator.hocon")
+>
+>   // Optional: add Gradle-side config overlays
+>   exempt("class{com/example/generated/**}")
+>   disable("stringEncryption")
+>
+>   // Optional: trim resolved runtimeClasspath jars before obfuscation
+>   minimizeDependencies = false
 >}
 > ```
 
@@ -63,9 +70,72 @@ You can download Skidfuscator [here](https://github.com/skidfuscatordev/skidfusc
 java -jar skidfuscator.jar obfuscate <path to your jar>
 ```
 
-Skidfuscator uses a config system, which allows you to customize your obfuscation. We try to automatically download all compatible libraries, but some may slip through the cracks. The Gradle plugin is a work in progress. For now, use:
+Skidfuscator uses a config system, which allows you to customize your obfuscation. We try to automatically download all compatible libraries, but some may slip through the cracks. If you are not using Gradle, you can pass a folder of runtime libraries manually:
 ```
 java -jar skidfuscator.jar obfuscate <path to your jar> -li=<path to folder with all libs>
+```
+
+### Gradle plugin
+
+Applying `dev.skidfuscator` to a Java project registers:
+
+```text
+skidfuscatorConfigUi
+skidfuscatorGenerateConfig
+skidfuscatorCollectLibraries
+obfuscateJar
+```
+
+`obfuscateJar` depends on the normal `jar` task, resolves the selected source set's `runtimeClasspath`, collects dependency jars automatically, and writes a separate obfuscated artifact at `build/libs/<name>-<version>-obfuscated.jar`. The normal jar is left unchanged, and `assemble` depends on `obfuscateJar` by default.
+
+#### 🎛️ Visual configurator
+
+Not sure which transformers to turn on? Run:
+
+```bash
+./gradlew skidfuscatorConfigUi
+```
+
+This opens a self-contained configurator in your browser (it works fully offline — no network, no build step). Toggle transformers and runtime flags, pick a preset, edit your exemptions, and it live-generates two things to copy or download:
+
+- **`skidfuscator.hocon`** — the full transformer configuration (only non-default keys, so it stays readable). Drop it next to `build.gradle`.
+- **`build.gradle` / `build.gradle.kts`** — a ready-to-paste `skidfuscator { ... }` block that points `configFile` at the HOCON above and sets the Gradle-only runtime flags.
+
+Exemptions are picked from a **class tree with checkboxes** instead of typed matchers: the task scans your input jar plus the source set's class output and embeds the package/class tree in the page, so you tick a folder (exempts the whole package, `class{^pkg/}`) or an individual class (`class{^pkg/Name}`) and the matchers are generated for you. Method-level or regex rules still go in the "Advanced matchers" box. The tree is injected inline, so it stays offline-safe; open the page without running the task and the picker falls back to manual entry.
+
+It validates dependencies as you go (e.g. guard compression needs the wide seed, tamper protection needs the SDK) and never touches your project — the only file it writes is `build/skidfuscator/config-ui.html`. On a headless machine it just prints the path; pass `-Pskidfuscator.openConfigUi=false` to extract the page without launching a browser.
+
+```groovy
+plugins {
+    id 'java'
+    id 'dev.skidfuscator' version '0.1.4'
+}
+
+skidfuscator {
+    // Defaults to the main jar task output.
+    inputJar = tasks.named('jar').flatMap { it.archiveFile }
+
+    // Defaults to build/libs/<name>-<version>-obfuscated.jar.
+    outputJar = layout.buildDirectory.file('libs/app-obfuscated.jar')
+
+    // Optional HOCON file. DSL entries are appended as overrides.
+    configFile = layout.projectDirectory.file('skidfuscator.hocon')
+
+    // Optional extra libraries in addition to runtimeClasspath.
+    library(file('libs/manual-runtime.jar'))
+
+    // Default is false: pass all resolved runtimeClasspath jars.
+    // true: run the dependency analyzer and keep only hierarchy-needed jars.
+    minimizeDependencies = true
+
+    // Common Gradle-side HOCON overlay helpers.
+    exempt('class{com/example/generated/**}')
+    disable('stringEncryption')
+    transformer('numberEncryption', false)
+
+    // Optional runtime override; otherwise the Java toolchain/current JVM is used.
+    runtimePath(file(System.getProperty('java.home')))
+}
 ```
 
 ### 🔥 Homebrew (macOS)

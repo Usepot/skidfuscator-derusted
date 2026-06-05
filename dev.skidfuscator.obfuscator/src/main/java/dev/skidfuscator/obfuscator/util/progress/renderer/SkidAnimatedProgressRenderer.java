@@ -18,6 +18,10 @@ public class SkidAnimatedProgressRenderer extends AnimatedProgressRenderer {
 
     public static final String ANSI_CSI = (char) 27 + "[";
     private final Appender APPENDER = new AppenderSkeleton() {
+        {
+            setName("skidfuscator-progress-renderer");
+        }
+
         @Override
         protected void append(LoggingEvent event) {
             target.print(ansi()
@@ -40,7 +44,12 @@ public class SkidAnimatedProgressRenderer extends AnimatedProgressRenderer {
 
     @Override
     public synchronized void begin(TaskMonitor monitor) {
-        LogManager.getRootLogger().addAppender(APPENDER);
+        try {
+            LogManager.getRootLogger().addAppender(APPENDER);
+        } catch (LinkageError | RuntimeException ignored) {
+            // Gradle can provide a log4j bridge whose Appender type is not compatible
+            // with the real log4j classes Skidfuscator is compiled against.
+        }
     }
 
     @Override
@@ -71,7 +80,15 @@ public class SkidAnimatedProgressRenderer extends AnimatedProgressRenderer {
     public synchronized void finish(TaskMonitor monitor) {
         super.finish(monitor);
         System.out.println();
-        LogManager.getRootLogger().removeAppender(APPENDER);
+        try {
+            LogManager.getRootLogger().removeAppender(APPENDER);
+        } catch (LinkageError | RuntimeException ignored) {
+            try {
+                LogManager.getRootLogger().removeAppender(APPENDER.getName());
+            } catch (LinkageError | RuntimeException ignoredAgain) {
+                // Best-effort cleanup only; obfuscation must not fail on logger bridges.
+            }
+        }
     }
 
     public StringBuilder buildAnsiString() {

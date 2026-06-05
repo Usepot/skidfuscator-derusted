@@ -1,7 +1,6 @@
 package dev.skidfuscator.obfuscator.hierarchy;
 
 import dev.skidfuscator.obfuscator.Skidfuscator;
-import dev.skidfuscator.obfuscator.hierarchy.err.InvalidLambdaCallException;
 import dev.skidfuscator.obfuscator.hierarchy.matching.ClassMethodHash;
 import dev.skidfuscator.obfuscator.skidasm.*;
 import dev.skidfuscator.obfuscator.skidasm.cfg.SkidControlFlowGraph;
@@ -301,8 +300,12 @@ public class SkidHierarchy implements Hierarchy {
                                     assert (e.bsmArgs.length == 3 && e.bsmArgs[1] instanceof Handle);
                                     final Handle boundFunc = (Handle) e.bsmArgs[1];
 
-                                    // Patch for implicit funtions
-                                    // TODO: Fix this
+                                    // Patch for implicit functions (IR-less mirror of the CFG path):
+                                    // only mark a constructor lambda ("lambda$new$N") as an implicit
+                                    // function when it adapts a single-method application SAM we own (one
+                                    // that has a group). External/exempt library SAMs have no group, so we
+                                    // fall through to record the bound lambda body as a normal invocation
+                                    // instead of NPE-ing on getGroup().
                                     if (boundFunc.getName().startsWith("lambda$new$")) {
                                         final String returnType = Type.getReturnType(e.desc).getClassName().replace(".", "/");
                                         //System.out.println("Attempting to locate " + returnType);
@@ -311,12 +314,15 @@ public class SkidHierarchy implements Hierarchy {
                                         if (!(targetClass instanceof SkidClassNode))
                                             return;
 
-                                        assert targetClass.getMethods().size() == 1 : "Implicit Function must be single method!";
-                                        final SkidMethodNode methodNode = (SkidMethodNode) targetClass.getMethods().get(0);
+                                        if (targetClass.getMethods().size() == 1) {
+                                            final SkidMethodNode methodNode = (SkidMethodNode) targetClass.getMethods().get(0);
 
-                                        methodNode.getGroup().setImplicitFunction(true);
-                                        //System.out.println("Found implicit function: " + methodNode.toString());
-                                        return;
+                                            if (methodNode.getGroup() != null) {
+                                                methodNode.getGroup().setImplicitFunction(true);
+                                                //System.out.println("Found implicit function: " + methodNode.toString());
+                                                return;
+                                            }
+                                        }
                                     }
 
                                     target = new ClassMethodHash(boundFunc.getName(), boundFunc.getDesc(), boundFunc.getOwner());
@@ -380,8 +386,15 @@ public class SkidHierarchy implements Hierarchy {
                                         );
                                     }
 
-                                    // Patch for implicit funtions
-                                    // TODO: Fix this
+                                    // Patch for implicit functions: a lambda declared inside a
+                                    // constructor is given the synthetic name "lambda$new$N" by javac.
+                                    // We only treat such a lambda as one of *our* implicit functions when
+                                    // it adapts a single-method application SAM that we actually own (i.e.
+                                    // one that has a SkidGroup). When the adapted functional interface is a
+                                    // library type bundled into the jar (e.g. io.socket's Emitter$Listener)
+                                    // it is exempt/abstract and has no group -- in that case we must NOT
+                                    // crash. We simply fall through and let the bound lambda body be
+                                    // recorded as a normal invocation below.
                                     if (boundFunc.getName().startsWith("lambda$new$")) {
                                         final String returnType = e.getType().getClassName().replace(".", "/");
                                         //System.out.println("Attempting to locate " + returnType);
@@ -392,35 +405,31 @@ public class SkidHierarchy implements Hierarchy {
 
                                         SkidMethodNode methodNode = null;
 
-                                        // [resolution] step 1: check if current class has method
+                                        // [resolution] walk up the hierarchy to the first class that
+                                        // actually declares a method. Only a clean single-method node
+                                        // qualifies as an implicit function; anything else (multi-method
+                                        // type, external/exempt SAM) is left to the normal recording path.
                                         ClassNode node;
 
                                         for (node = targetClass;
                                              node instanceof SkidClassNode;
-                                             node = skidfuscator.getClassSource().findClassNode(targetClass.getSuperName())) {
+                                             node = skidfuscator.getClassSource().findClassNode(node.getSuperName())) {
                                             if (!node.getMethods().isEmpty()) {
-
-                                                // [validation] cannot have more than one method in implicit function
-                                                if (node.getMethods().size() != 1) {
-                                                    throw new InvalidLambdaCallException(boundFunc, node);
+                                                if (node.getMethods().size() == 1) {
+                                                    methodNode = (SkidMethodNode) node.getMethods().get(0);
                                                 }
-
-                                                // must be correct
-                                                methodNode = (SkidMethodNode) node.getMethods().get(0);
                                                 break;
                                             }
                                         }
 
-                                        if (methodNode != null) {
-                                            // [validation] Discovered lambda call must belong to a group
-                                            if (methodNode.getGroup() == null) {
-                                                throw new InvalidLambdaCallException(boundFunc, targetClass);
-                                            }
-
+                                        // Only mark + skip when the resolved SAM is an application method
+                                        // we own (has a group). Otherwise fall through to record the bound
+                                        // lambda body as a normal invocation instead of throwing.
+                                        if (methodNode != null && methodNode.getGroup() != null) {
                                             methodNode.getGroup().setImplicitFunction(true);
+                                            //System.out.println("Found implicit function: " + methodNode.toString());
                                             return;
                                         }
-                                        //System.out.println("Found implicit function: " + methodNode.toString());
                                     }
 
                                     target = new ClassMethodHash(boundFunc.getName(), boundFunc.getDesc(), boundFunc.getOwner());

@@ -148,6 +148,27 @@ public class TamperJarDumper extends PhantomResolvingJarDumper {
                 } catch (final org.objectweb.asm.MethodTooLargeException e) {
                     // [failsafe] mirror the normal dump: still remap, skip compute.
                     serialized = serialize(cn, tree, 0);
+                } catch (final Throwable t) {
+                    // [failsafe] COMPUTE_FRAMES can blow up (e.g. ASM Frame.merge
+                    // NPE) on a method the obfuscator left in a state ASM can't
+                    // reframe -- a dead incoming edge or an illegal cast, see the
+                    // post-transform verify warnings. The streaming
+                    // PhantomResolvingJarDumper degrades to COMPUTE_MAXS in exactly
+                    // this case; do the same here, otherwise a single bad method
+                    // aborts the whole tamper dump and we lose ALL output.
+                    byte[] degraded;
+                    try {
+                        degraded = serialize(cn, tree, ClassWriter.COMPUTE_MAXS);
+                    } catch (final Throwable t2) {
+                        // Last resort: remap names only, compute nothing.
+                        degraded = serialize(cn, tree, 0);
+                    }
+                    serialized = degraded;
+                    Skidfuscator.LOGGER.warn(
+                            "\r❗ Failed to compute frames for " + cn.getName()
+                                    + "; wrote it without recomputing frames "
+                                    + "(may cause runtime abnormalities).\n"
+                    );
                 }
                 bytes = serialized;
                 eligible = isEligible(cn, finalInternal);

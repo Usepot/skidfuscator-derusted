@@ -321,7 +321,21 @@ import java.util.stream.Collectors;
         final ControlFlowGraph cfg = methodNode.getCfg();
         final BasicBlock entryPoint = methodNode.getEntryBlock();
         final SkidBlock seedEntry = (SkidBlock) entryPoint;
-        cfg.recomputeEdges();
+        try {
+            cfg.recomputeEdges();
+        } catch (RuntimeException ex) {
+            // Degenerate input (e.g. a char-vs-Null comparison in mapwriter MwChunk)
+            // makes ConditionalJumpStmt#toOpcode throw an illegal-binop error. Match
+            // the warn-and-skip every other recomputeEdges() call site already uses
+            // rather than letting it bubble up as a raw stack trace through the EventBus.
+            Skidfuscator.LOGGER.warn(
+                    "Skipping CFG edge recomputation for "
+                            + methodNode.getOwner() + "#"
+                            + methodNode.getName() + methodNode.getDesc()
+                            + ": " + ex.getMessage()
+            );
+            return;
+        }
 
         verifyWithoutDump(event, methodNode, cfg, "pre-render");
 

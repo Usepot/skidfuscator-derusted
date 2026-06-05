@@ -161,9 +161,11 @@ public class DependencyAnalyzer {
             return notFound;
         }
 
-        ClassReader cr = new ClassReader(classStream);
         HierarchyVisitor visitor = new HierarchyVisitor();
-        cr.accept(visitor, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        try (InputStream stream = classStream) {
+            ClassReader cr = new ClassReader(stream);
+            cr.accept(visitor, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        }
 
         DependencyClassHierarchy hierarchy = new DependencyClassHierarchy(
                 className,

@@ -368,12 +368,24 @@ public class Skidfuscator {
 
                 try {
                     cfg.recomputeEdges();
+                } catch (RuntimeException ex) {
+                    LOGGER.warn(
+                            "Skipping final CFG edge recomputation for "
+                                    + mn.getOwner() + "#"
+                                    + mn.getName() + mn.getDesc()
+                                    + ": " + ex.getMessage()
+                    );
+                }
+
+                try {
                     mn.dump();
-                } catch (Exception ex){
-                    if (ex instanceof IllegalStateException) {
-                        throw ex;
-                    }
-                    ex.printStackTrace();
+                } catch (RuntimeException ex) {
+                    LOGGER.warn(
+                            "Skipping final CFG dump for "
+                                    + mn.getOwner() + "#"
+                                    + mn.getName() + mn.getDesc()
+                                    + ": " + ex.getMessage()
+                    );
                 }
                 progressBar.tick();
             }
@@ -1189,7 +1201,16 @@ public class Skidfuscator {
                             }
                     );
                     issues.addAll(methodEvent.getIssues());
-                    methodNode.getCfg().recomputeEdges();
+                    try {
+                        methodNode.getCfg().recomputeEdges();
+                    } catch (RuntimeException e) {
+                        LOGGER.warn(
+                                "Skipping CFG edge recomputation for "
+                                        + methodNode.getOwner() + "#"
+                                        + methodNode.getName() + methodNode.getDesc()
+                                        + ": " + e.getMessage()
+                        );
+                    }
                     progressBar.tick();
                 }
             }
@@ -1360,4 +1381,3 @@ public class Skidfuscator {
         });
     }
 }
-

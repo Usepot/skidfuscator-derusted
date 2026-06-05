@@ -1,0 +1,34 @@
+plugins {
+    id 'java-gradle-plugin'
+}
+
+group = 'dev.skidfuscator.community'
+version = rootProject.version
+
+dependencies {
+    implementation 'com.typesafe:config:1.4.2'
+
+    testImplementation gradleTestKit()
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.0'
+}
+
+tasks.named('compileJava') {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+gradlePlugin {
+    plugins {
+        skidfuscator {
+            id = 'dev.skidfuscator'
+            implementationClass = 'dev.skidfuscator.gradle.SkidfuscatorPlugin'
+            displayName = 'Skidfuscator Gradle Plugin'
+            description = 'Obfuscates Java jar artifacts with Skidfuscator.'
+        }
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

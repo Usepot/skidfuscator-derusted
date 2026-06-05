@@ -63,8 +63,7 @@ public class PhantomJarDownloader<C extends ClassNode> extends AbstractJarDownlo
 	public void download() throws IOException {
 		URL url = null;
 		JarURLConnection connection = (JarURLConnection) (url = new URL(jarInfo.formattedURL())).openConnection();
-		JarFile jarFile = connection.getJarFile();
-		Enumeration<JarEntry> entries = jarFile.entries();
+		connection.setUseCaches(false);
 		contents = new LocateableJarContents(url);
 
 		/*
@@ -76,15 +75,21 @@ public class PhantomJarDownloader<C extends ClassNode> extends AbstractJarDownlo
 		 * Add all the regular data to the map, add the resources to the jar contents, we won't
 		 * be needing them for now. Once that's done, cleate a new type map.
 		 */
-		while (entries.hasMoreElements()) {
-			JarEntry entry = entries.nextElement();
-			byte[] bytes = read(jarFile.getInputStream(entry));
-			if (entry.getName().endsWith(".class")) {
-				data.put(entry.getName(), bytes);
-				//System.out.println("[+] " + entry.getName());
-			} else {
-				JarResource resource = new JarResource(entry.getName(), bytes);
-				contents.getResourceContents().add(resource);
+		try (JarFile jarFile = connection.getJarFile()) {
+			Enumeration<JarEntry> entries = jarFile.entries();
+			while (entries.hasMoreElements()) {
+				JarEntry entry = entries.nextElement();
+				final byte[] bytes;
+				try (InputStream inputStream = jarFile.getInputStream(entry)) {
+					bytes = read(inputStream);
+				}
+				if (entry.getName().endsWith(".class")) {
+					data.put(entry.getName(), bytes);
+					//System.out.println("[+] " + entry.getName());
+				} else {
+					JarResource resource = new JarResource(entry.getName(), bytes);
+					contents.getResourceContents().add(resource);
+				}
 			}
 		}
 
