@@ -104,8 +104,13 @@ reference {
 # identical output to the legacy pipeline when disabled).
 tamperProtection {
   enabled = false
-  # Reaction on a checksum mismatch: THROW (raise an error from the verifying
-  # class) or EXIT (halt the JVM).
+  # Reaction on a checksum mismatch:
+  #   THROW  - raise an error from the verifying class (loud, fails at the check site)
+  #   EXIT   - halt the JVM at the check site
+  #   SILENT - let the check pass, then arm a deferred, off-thread reaction that
+  #            halts the JVM after a randomised delay, so the failure surfaces
+  #            later and away from the check (and the patched class). Hardest to
+  #            trace; a clean build is behaviourally unchanged.
   action = THROW
 }
 

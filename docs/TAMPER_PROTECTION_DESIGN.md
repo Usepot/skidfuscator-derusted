@@ -28,7 +28,7 @@ natural path for M3 seed-coupling.
 - `transform/impl/integrity/IntegrityGraph.java` — edges A→B, post-order DFS `dependencyOrder()`
   (targets before holders), cycle detection, coverage/exposed-source report.
 - `transform/impl/integrity/TamperProtectionConfig.java` — `isEnabled()` defaults **false**
-  (mirrors `DriverConfig`); `getAction()` = `THROW`|`EXIT`.
+  (mirrors `DriverConfig`); `getAction()` = `THROW`|`EXIT`|`SILENT` (unknown ⇒ `THROW`).
 - `transform/impl/integrity/TamperProtectionTransformer.java` — enable gate / config anchor /
   `requiresSdk()`; logs the mesh is armed at `FinalSkidTransformEvent`.
 - `phantom/jphantom/TamperJarDumper.java` — the two-pass dumper (buffer final remapped bytes →
@@ -37,8 +37,8 @@ natural path for M3 seed-coupling.
 - `util/MapleJarUtil.java` — `dumpJar` branches to `TamperJarDumper` only when
   `tamperProtection.enabled && sdk.enabled && !fileCrasher.enabled`; otherwise legacy path.
 - `Skidfuscator.java` — registers the transformer. `gui/TransformerPanel.java` — "Tamper
-  Protection" card (id `tamperProtection`) with a `THROW`/`EXIT` toggle. `defaultConfig.hocon`
-  — `tamperProtection { enabled = false, action = THROW }`.
+  Protection" card (id `tamperProtection`) with a `THROW`/`EXIT`/`SILENT` toggle.
+  `defaultConfig.hocon` — `tamperProtection { enabled = false, action = THROW }`.
 
 **Mesh shape (M1):** eligible classes (non-exempt, non-SDK, non interface/annotation/enum)
 are sorted deterministically and chained — `c_i` verifies `c_{i-1}` — guaranteeing a DAG. The
@@ -49,10 +49,17 @@ redundancy/multi-edge is later hardening (§6).
 embeds a build-time `xx3` hash that the runtime recomputes. The build hashes the exact `byte[]`
 it writes to the jar; the runtime reads the exact same entry → hashes match.
 
+A third reaction, **`SILENT`**, has since been added on top of M1 (still output-time injection):
+on mismatch the check returns normally and arms a deferred, off-thread, jittered JVM halt, so the
+failure is displaced in time and stack from the check and the patched class. This is the
+*deferred-reaction* tier of "silent" — it does not yet couple into the flow seed (the full
+behavioural corruption of §5 is still M3). See §5.
+
 **M1 limitations / not yet done:** Tier B (method-Code region, true cycles) — §2/§8 M2;
-seed-coupled silent corruption — §5/§8 M3; multiple checks/in-edges per class — §6; the check
-call is visible cleartext (not obfuscated); incompatible with `fileCrasher` (auto-bypassed with a
-warning); `<clinit>`-only trigger (a class never initialised at runtime never self-checks).
+seed-coupled silent *corruption* (behavioural, not just deferred termination) — §5/§8 M3;
+multiple checks/in-edges per class — §6; the check call is visible cleartext (not obfuscated);
+incompatible with `fileCrasher` (auto-bypassed with a warning); `<clinit>`-only trigger (a class
+never initialised at runtime never self-checks).
 
 ---
 
@@ -230,9 +237,24 @@ target**.
 
 ---
 
-## 5. Milestone 3 — seed-coupled silent corruption (deferred, designed here)
+## 5. Silent reaction — shipped deferred tier + Milestone 3 seed-coupling
 
-Replace the hard `throw` with integration into the existing flow-seed / opaque-predicate
+There are two levels of "silent", staged:
+
+**(Shipped) `SILENT` action — deferred, off-thread termination.** `Tamper.verifySilent`
+detects exactly like `verify` but, on mismatch, does **not** fail at the check site: it arms a
+one-shot reaction (`AtomicBoolean ARMED`) and returns, so `<clinit>` completes and the program
+runs on. The reaction is a non-daemon thread that sleeps a jittered 5–45s delay (derived from
+`System.nanoTime() ^ expected`, so there is no fixed timing fingerprint) and then
+`Runtime.getRuntime().halt(0)` — an innocuous exit, skipping shutdown hooks. The failure is thus
+displaced in **time** (later) and **stack** (a background thread, not the verifying method), and
+in a mesh the patched class B, the verifying class A, and the dying thread are three different
+places. A clean build never reaches `detonate` (every check matches; lenient on unreadable
+bytes), so it is byte-for-byte behaviourally identical. Cost: it still ultimately terminates and
+a determined attacker can hook `Runtime.halt`/`Thread.sleep`; it does not corrupt *behaviour*.
+
+**(M3) Seed-coupled silent corruption.** The deeper tier — no termination at all, just wrong
+answers. Replace the hard `throw` with integration into the existing flow-seed / opaque-predicate
 system (`BlockOpaquePredicate`, the seed routing used by
 [`NumberTransformer`](../dev.skidfuscator.obfuscator/src/main/java/dev/skidfuscator/obfuscator/transform/impl/number/NumberTransformer.java)).
 `Tamper.verify` returns `0` on match and nonzero garbage on mismatch; that value is

@@ -3,16 +3,23 @@ package sdk;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Runtime self-integrity helper injected into obfuscated output.
  *
  * <p>Each protected class A contains, in its {@code <clinit>}, a call to
- * {@link #verify(Class, long)} (or {@link #verifyExit(Class, long)}) naming a
- * <em>different</em> class B and B's expected whole-file checksum. At runtime A
- * reads B's on-disk {@code .class} bytes, hashes them, and reacts if the hash no
- * longer matches — so patching B trips a checker that lives in A (a cross-class
- * mesh).</p>
+ * {@link #verify(Class, long)}, {@link #verifyExit(Class, long)} or
+ * {@link #verifySilent(Class, long)} naming a <em>different</em> class B and B's
+ * expected whole-file checksum. At runtime A reads B's on-disk {@code .class}
+ * bytes, hashes them, and reacts if the hash no longer matches — so patching B
+ * trips a checker that lives in A (a cross-class mesh).</p>
+ *
+ * <p>The three reactions trade visibility for immediacy: {@code verify} raises
+ * an error and {@code verifyExit} halts the JVM <em>at the check site</em> (loud,
+ * but the crash stack points straight at the check); {@code verifySilent} instead
+ * lets the check return normally and arms a deferred, off-thread reaction, so the
+ * failure surfaces later and elsewhere (see {@link #verifySilent}).</p>
  *
  * <p>The hash is {@link LongHashFunction#xx3()} over the entire class file, the
  * same primitive the rest of the SDK already relies on for build/runtime hash
@@ -21,6 +28,14 @@ import java.io.InputStream;
  * positive in those cases.</p>
  */
 public final class Tamper {
+
+    /**
+     * Guards the silent mode's one-shot deferred reaction: the first detected
+     * mismatch arms it, any later detection is absorbed. A clean program never
+     * flips this, so it stays {@code false} and no reaction thread is ever
+     * started — the build is behaviourally identical to an unprotected one.
+     */
+    private static final AtomicBoolean ARMED = new AtomicBoolean(false);
 
     private Tamper() {
     }
@@ -45,6 +60,53 @@ public final class Tamper {
         if (!matches(target, expected)) {
             Runtime.getRuntime().halt(0x5C);
         }
+    }
+
+    /**
+     * Silent reaction: on mismatch do <em>not</em> fail at the check site.
+     * Instead arm a single deferred reaction and return normally, so the program
+     * runs on past this {@code <clinit>} and only degrades later — from an
+     * unrelated background thread, after a randomised delay. The eventual failure
+     * is displaced in both time and stack from the check and (in a mesh) from the
+     * class that was actually patched, defeating the "patch a class, read the
+     * crash, delete the named check" workflow that {@link #verify} and
+     * {@link #verifyExit} expose.
+     *
+     * <p>A correctly-running program never reaches the reaction path (every check
+     * matches, and the helper is lenient on unreadable bytes), so it behaves
+     * exactly like an unprotected build.</p>
+     */
+    public static void verifySilent(final Class<?> target, final long expected) {
+        if (!matches(target, expected)) {
+            detonate(expected);
+        }
+    }
+
+    /**
+     * Arm the silent reaction once. Spawns a thread that waits a jittered delay
+     * and then halts the JVM with an innocuous exit code. The delay is derived
+     * from the call (no fixed timing signature to fingerprint); the thread is
+     * non-daemon so the reaction still fires even if the main thread finishes
+     * first, and {@link Runtime#halt(int)} skips shutdown hooks and mimics a
+     * clean exit.
+     */
+    private static void detonate(final long seed) {
+        if (!ARMED.compareAndSet(false, true)) {
+            return; // a reaction is already pending; absorb further detections silently
+        }
+        // System.nanoTime is monotonic and always available; >>> 1 keeps the
+        // modulus operand non-negative. Window: 5s .. 45s after detection.
+        final long delayMillis = 5000L + (((System.nanoTime() ^ seed) >>> 1) % 40000L);
+        final Thread reaper = new Thread(() -> {
+            try {
+                Thread.sleep(delayMillis);
+            } catch (final InterruptedException ignored) {
+                // fall through and halt anyway
+            }
+            Runtime.getRuntime().halt(0);
+        });
+        reaper.setDaemon(false);
+        reaper.start();
     }
 
     private static boolean matches(final Class<?> target, final long expected) {

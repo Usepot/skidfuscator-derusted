@@ -556,15 +556,17 @@ public class ConfigPanel extends JPanel implements SkidPanel {
     }
 
     private void saveConfiguration() {
-        SwingUtilities.invokeLater(() -> new SkidfuscatorConfig.Builder()
-                .setLastInputPath(inputField.getText())
-                .setLastOutputPath(outputField.getText())
-                .setLastLibsPath(libsField.getText())
-                .setLastRuntimePath(runtimeField.getText())
-                .setDebugEnabled(debugBox.isSelected())
-                .setLastDirectory(config.getLastDirectory())
-                .build()
-                .save());
+        // Mutate the shared config object rather than building a throwaway one.
+        // A fresh Builder would reset exemptions / phantom / proGuard flags to
+        // their defaults, silently wiping settings the Exemption panel persists
+        // into the very same file. Updating the shared instance also keeps the
+        // paths current for ExemptionPanel.applyAndPersist(), which saves it.
+        config.setLastInputPath(inputField.getText());
+        config.setLastOutputPath(outputField.getText());
+        config.setLastLibsPath(libsField.getText());
+        config.setLastRuntimePath(runtimeField.getText());
+        config.setDebugEnabled(debugBox.isSelected());
+        SwingUtilities.invokeLater(config::save);
     }
 
     private static DocumentListener simple(Runnable r) {

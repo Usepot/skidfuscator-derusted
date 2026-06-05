@@ -423,10 +423,12 @@ public class TransformerPanel extends JPanel {
                 Collections.singletonList(TransformerOptionDefinition.builder()
                         .key("action").label("On tamper")
                         .type(TransformerOptionType.ENUM)
-                        .enumValues(Arrays.asList("THROW", "EXIT"))
+                        .enumValues(Arrays.asList("THROW", "EXIT", "SILENT"))
                         .defaultValue("THROW")
                         .description("How a class reacts when a sibling's checksum mismatches: "
-                                + "THROW raises an error from the verifying class; EXIT halts the JVM.")
+                                + "THROW raises an error from the verifying class; EXIT halts the JVM; "
+                                + "SILENT lets the check pass and arms a deferred, off-thread reaction so "
+                                + "the program dies later and away from the check (harder to trace).")
                         .build()));
 
         addSection(host, "methodCallObfuscation", "Method Call Obfuscation",

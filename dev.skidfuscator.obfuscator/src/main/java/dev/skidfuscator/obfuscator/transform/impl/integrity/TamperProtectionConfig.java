@@ -20,8 +20,14 @@ public class TamperProtectionConfig extends DefaultTransformerConfig {
     }
 
     /**
-     * Reaction on a checksum mismatch: {@code THROW} (raise an error from the
-     * verifying class) or {@code EXIT} (halt the JVM).
+     * Reaction on a checksum mismatch:
+     * <ul>
+     *   <li>{@code THROW} — raise an error from the verifying class (default),</li>
+     *   <li>{@code EXIT} — halt the JVM at the check site,</li>
+     *   <li>{@code SILENT} — let the check pass and arm a deferred, off-thread
+     *       reaction so the failure surfaces later and away from the check.</li>
+     * </ul>
+     * Unrecognised values fall back to {@code THROW} in the stamping pass.
      */
     public String getAction() {
         return this.getString("action", "THROW");

@@ -100,7 +100,14 @@ public class TamperJarDumper extends PhantomResolvingJarDumper {
         // trailing-slash naming below is kept only as defensive parity.
         final boolean fileCrasher = skidfuscator.getConfig().getBoolean("fileCrasher.enabled", false);
         final String action = skidfuscator.getConfig().getString("tamperProtection.action", "THROW");
-        final String verifyMethod = "EXIT".equalsIgnoreCase(action) ? "verifyExit" : "verify";
+        final String verifyMethod;
+        if ("EXIT".equalsIgnoreCase(action)) {
+            verifyMethod = "verifyExit";
+        } else if ("SILENT".equalsIgnoreCase(action)) {
+            verifyMethod = "verifySilent";
+        } else {
+            verifyMethod = "verify";
+        }
 
         // ---- Pass 1: serialise every class to its final remapped bytes ----
         final ClassTree tree = source.getClassTree();
