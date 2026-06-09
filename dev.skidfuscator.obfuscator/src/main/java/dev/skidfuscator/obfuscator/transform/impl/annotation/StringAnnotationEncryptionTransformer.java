@@ -163,6 +163,13 @@ public class StringAnnotationEncryptionTransformer extends AbstractTransformer {
             return;
         }
 
+        // Annotations read straight from the class file by an external loader
+        // (Forge/FML mod discovery, Mixin) never reach the decryptor call-sites
+        // this transformer injects, so encrypting their values breaks loading.
+        if (FrameworkAnnotations.isStructural(annotation.desc)) {
+            return;
+        }
+
         boolean changed = false;
         for (int i = 1; i < annotation.values.size(); i += 2) {
             final Object original = annotation.values.get(i);

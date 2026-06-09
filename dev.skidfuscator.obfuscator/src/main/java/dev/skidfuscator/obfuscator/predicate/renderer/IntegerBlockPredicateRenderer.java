@@ -134,11 +134,28 @@ import java.util.stream.Collectors;
          * +2 -> Get the next long local
          * +3 -> Safety net to allow for "long" to be used (I don't really know
          *       this fixed all my issues)
+         *
+         * seed.wide: the flow local itself carries a 64-bit long, so it occupies
+         * TWO slots (S, S+1). At the legacy +3 placement its low half (+3) lands
+         * in the "+2 long scratch" slot's high half (a long scratch at +2 spans
+         * +2,+3), producing overlapping longs -> VerifyError "Bad local variable
+         * type". Under wide we move it one slot up (+4 so it spans +4,+5, clear of
+         * the +2,+3 scratch) and explicitly reserve its high half so maxLocals
+         * (which LocalsPool tracks as the highest INDEX, not index+size) reflects
+         * the long's full 2-slot footprint and later index-relative allocations
+         * cannot reuse it.
          */
+        final boolean seedWideLocal = skidfuscator.getConfig().isSeedWide();
+        final int flowLocalSlot = methodNode.getCfg().getLocals().getMaxLocals()
+                + (seedWideLocal ? 4 : 3);
         final Local local = methodNode
                 .getCfg()
                 .getLocals()
-                .get(methodNode.getCfg().getLocals().getMaxLocals() + 3);
+                .get(flowLocalSlot);
+        if (seedWideLocal) {
+            // Touch the long's high half so updateMaxs records it as occupied.
+            methodNode.getCfg().getLocals().get(flowLocalSlot + 1);
+        }
         local.setFlag(SkidBlock.FLAG_PROXY, true);
         methodNode.getEntryBlock();
 

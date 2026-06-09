@@ -152,6 +152,13 @@ public class IntAnnotationEncryptionTransformer extends AbstractTransformer {
             return;
         }
 
+        // Annotations read straight from the class file by an external loader
+        // (Forge/FML mod discovery, Mixin) never reach the decryptor call-sites
+        // this transformer injects, so remapping their values breaks loading.
+        if (FrameworkAnnotations.isStructural(annotation.desc)) {
+            return;
+        }
+
         for (int i = 0; i < annotation.values.size() - 1; i += 2) {
             final Object rawName = annotation.values.get(i);
             if (!(rawName instanceof String)) {

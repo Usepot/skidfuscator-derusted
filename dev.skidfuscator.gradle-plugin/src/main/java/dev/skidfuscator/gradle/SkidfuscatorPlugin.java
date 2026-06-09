@@ -5,6 +5,7 @@ import dev.skidfuscator.gradle.task.ObfuscateJarTask;
 import dev.skidfuscator.gradle.task.SkidfuscatorCollectLibrariesTask;
 import dev.skidfuscator.gradle.task.SkidfuscatorConfigUiTask;
 import dev.skidfuscator.gradle.task.SkidfuscatorGenerateConfigTask;
+import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -99,6 +100,38 @@ public class SkidfuscatorPlugin implements Plugin<Project> {
         if (assemble != null) {
             assemble.dependsOn(obfuscate);
         }
+
+        // ForgeGradle (and similar reobfuscation plugins) rewrite the jar task's archive
+        // *in place* with production naming — e.g. reobfJar maps dev/MCP names to SEARGE.
+        // Skidfuscator consumes the jar task's output, so when such a reobf task exists it
+        // must run first; otherwise we obfuscate dev-named bytecode whose member names no
+        // longer match the runtime, which breaks Mixin @Shadow resolution and direct
+        // Minecraft calls at class-load time. We only force this for the default input jar:
+        // a user-supplied inputJar has its own provenance and is left untouched.
+        project.afterEvaluate(new Action<Project>() {
+            @Override
+            public void execute(final Project evaluated) {
+                if (extension.getInputJar() != null) {
+                    return;
+                }
+                final Task reobf = evaluated.getTasks().findByName(reobfTaskNameFor(JavaPlugin.JAR_TASK_NAME));
+                if (reobf != null) {
+                    obfuscate.dependsOn(reobf);
+                    obfuscate.mustRunAfter(reobf);
+                }
+            }
+        });
+    }
+
+    /**
+     * ForgeGradle names a reobf task {@code "reobf" + capitalized jar task name}
+     * (e.g. {@code reobfJar}). Returns that conventional name for a given jar task.
+     */
+    private static String reobfTaskNameFor(String jarTaskName) {
+        if (jarTaskName == null || jarTaskName.isEmpty()) {
+            return "reobfJar";
+        }
+        return "reobf" + Character.toUpperCase(jarTaskName.charAt(0)) + jarTaskName.substring(1);
     }
 
     public static File defaultInputJar(Project project) {
