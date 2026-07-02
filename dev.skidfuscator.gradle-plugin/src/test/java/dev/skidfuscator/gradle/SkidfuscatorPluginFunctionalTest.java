@@ -290,6 +290,7 @@ class SkidfuscatorPluginFunctionalTest {
                 "driver",
                 "reference",
                 "tamperProtection",
+                "proprietaryNotice",
                 "fileCrasher",
                 "classRenamer",
                 "methodRenamer",

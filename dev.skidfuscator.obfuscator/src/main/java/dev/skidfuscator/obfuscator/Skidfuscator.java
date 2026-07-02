@@ -64,6 +64,7 @@ import dev.skidfuscator.obfuscator.transform.impl.method.MethodDispatchTransform
 import dev.skidfuscator.obfuscator.transform.impl.method.MethodMergeTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.method.OutlinerTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.misc.AhegaoTransformer;
+import dev.skidfuscator.obfuscator.transform.impl.misc.ProprietaryNoticeTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.number.NumberTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.pure.PureHashTransformer;
 import dev.skidfuscator.obfuscator.transform.impl.sdk.SdkInjectorTransformer;
@@ -869,6 +870,7 @@ public class Skidfuscator {
                     new StringEqualsIgnoreCaseHashTransformer(this),
                     new InstanceOfHashTransformer(this),
                     new TamperProtectionTransformer(this),
+                    new ProprietaryNoticeTransformer(this),
                     //new LoopConditionTransformer(this),
                 /*
                 new FlatteningFlowTransformer(this),*/

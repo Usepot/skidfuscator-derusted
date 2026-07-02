@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skidfuscator Hardening Roadmap</title>
+<style>
+  :root {
+    --h: 295;
+    --bg: oklch(0.14 0.014 var(--h));
+    --bg-2: oklch(0.18 0.016 var(--h));
+    --surface: oklch(0.205 0.018 var(--h));
+    --surface-2: oklch(0.245 0.02 var(--h));
+    --surface-3: oklch(0.30 0.025 var(--h));
+    --ink: oklch(0.96 0.006 var(--h));
+    --text: oklch(0.84 0.012 var(--h));
+    --muted: oklch(0.69 0.02 var(--h));
+    --dim: oklch(0.56 0.02 var(--h));
+    --line: oklch(0.34 0.024 var(--h));
+    --line-soft: oklch(0.28 0.018 var(--h));
+    --accent: oklch(0.74 0.145 var(--h));
+    --accent-hi: oklch(0.82 0.135 var(--h));
+    --accent-soft: oklch(0.74 0.145 var(--h) / 0.16);
+    --amber: oklch(0.82 0.15 75);
+    --green: oklch(0.78 0.14 154);
+    --cyan: oklch(0.78 0.11 210);
+    --red: oklch(0.70 0.17 28);
+    --black: oklch(0.08 0.006 var(--h));
+    --sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", "SF Mono", Consolas, ui-monospace, monospace;
+    --r: 8px;
+    --ease: cubic-bezier(.16, 1, .3, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.65;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: .20;
+    background-image:
+      linear-gradient(115deg, transparent 0 54%, oklch(0.22 0.04 210 / .22) 54% 55%, transparent 55% 100%);
+  }
+  a { color: var(--accent-hi); text-underline-offset: .2em; }
+  button, input, select, textarea { font: inherit; }
+  button { color: inherit; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+
+  .site-shell { position: relative; min-height: 100vh; }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 58px;
+    padding: 0 22px;
+    background: oklch(0.14 0.014 var(--h) / .90);
+    border-bottom: 1px solid var(--line-soft);
+    backdrop-filter: blur(14px);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent-hi);
+    font-family: var(--mono);
+  }
+  .topbar nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .topbar nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: .9rem;
+  }
+  .topbar nav a:hover,
+  .topbar nav a:focus-visible { color: var(--ink); background: var(--surface); }
+  .top-actions { display: flex; align-items: center; gap: 8px; }
+
+  .icon-button,
+  .copy-button {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 8px;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 12px;
+    cursor: pointer;
+    transition: background .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease);
+  }
+  .icon-button { width: 40px; padding: 0; }
+  .icon-button:hover,
+  .copy-button:hover { background: var(--surface-2); border-color: var(--accent); transform: translateY(-1px); }
+  .icon {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  main { overflow: hidden; }
+  .hero {
+    min-height: calc(100vh - 58px);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .hero-media {
+    position: relative;
+    min-height: 360px;
+    overflow: hidden;
+    background: var(--black);
+  }
+  .hero-media img {
+    width: 100%;
+    height: 100%;
+    min-height: 360px;
+    display: block;
+    object-fit: cover;
+    opacity: .42;
+    filter: saturate(1.12) contrast(1.05);
+  }
+  .hero-media::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, oklch(0.10 0.012 var(--h) / .44), var(--bg) 100%),
+      linear-gradient(90deg, var(--bg) 0 42%, oklch(0.12 0.018 var(--h) / .84) 58%, transparent 100%);
+  }
+  .hero-title {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: end;
+    padding: 34px clamp(20px, 6vw, 72px);
+  }
+  .hero-title-inner { max-width: 950px; }
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: .8rem;
+  }
+  .kicker::before {
+    content: "";
+    width: 26px;
+    height: 2px;
+    background: currentColor;
+  }
+  h1 {
+    margin: 10px 0 0;
+    color: var(--ink);
+    font-size: 4.25rem;
+    line-height: .96;
+    letter-spacing: 0;
+    max-width: 11ch;
+    text-wrap: balance;
+  }
+  .hero-copy {
+    max-width: 72ch;
+    margin: 18px 0 0;
+    font-size: 1.08rem;
+    color: var(--text);
+    text-wrap: pretty;
+  }
+  .lab {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr);
+    gap: 26px;
+    align-items: stretch;
+    width: min(1180px, calc(100% - 40px));
+    margin: -26px auto 56px;
+    position: relative;
+  }
+  .lab-panel,
+  .readout-panel {
+    background: oklch(0.18 0.018 var(--h) / .96);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+  .lab-panel { padding: 22px; }
+  .lab-heading {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+  .lab-heading h2,
+  .section-heading h2 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 1.85rem;
+    line-height: 1.08;
+    letter-spacing: 0;
+    text-wrap: balance;
+  }
+  .lab-heading p,
+  .section-heading p {
+    margin: 8px 0 0;
+    color: var(--muted);
+    max-width: 70ch;
+    text-wrap: pretty;
+  }
+  .control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .control {
+    min-height: 92px;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .control input {
+    appearance: none;
+    width: 36px;
+    height: 36px;
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: grid;
+    place-content: center;
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .control input::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    transform: scale(0);
+    background: var(--green);
+    transition: transform .18s var(--ease);
+  }
+  .control input:checked {
+    border-color: var(--green);
+    background: oklch(0.25 0.05 154);
+  }
+  .control input:checked::before { transform: scale(1); }
+  .control strong {
+    display: block;
+    color: var(--ink);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .control span {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: .9rem;
+    line-height: 1.4;
+  }
+  .readout-panel {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .readout-top {
+    padding: 18px;
+    border-bottom: 1px solid var(--line-soft);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .metric {
+    min-height: 90px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    padding: 12px;
+    background: var(--bg-2);
+  }
+  .metric b {
+    display: block;
+    color: var(--ink);
+    font-size: 1.45rem;
+    line-height: 1.1;
+    font-family: var(--mono);
+    font-weight: 700;
+  }
+  .metric span { display: block; margin-top: 6px; color: var(--muted); font-size: .82rem; line-height: 1.35; }
+  .equation {
+    padding: 18px;
+    display: grid;
+    gap: 14px;
+  }
+  .equation pre,
+  .codebox pre {
+    margin: 0;
+    overflow: auto;
+    color: var(--ink);
+    font: .86rem/1.7 var(--mono);
+    background: var(--black);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    padding: 15px;
+  }
+  .meter {
+    height: 14px;
+    border-radius: 999px;
+    background: var(--black);
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+  }
+  .meter-fill {
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--red), var(--amber), var(--green), var(--cyan));
+    transition: width .28s var(--ease);
+  }
+  .readout-note { color: var(--muted); margin: 0; }
+
+  section { padding: 86px clamp(20px, 6vw, 72px); }
+  .section-inner { width: min(1180px, 100%); margin: 0 auto; }
+  .section-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 28px;
+    margin-bottom: 28px;
+  }
+  .section-heading .small { max-width: 44ch; }
+
+  .change-board {
+    display: grid;
+    grid-template-columns: 330px minmax(0, 1fr);
+    gap: 20px;
+  }
+  .change-list {
+    display: grid;
+    gap: 8px;
+  }
+  .change-tab {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 58px;
+    padding: 10px 12px;
+    text-align: left;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .change-tab:hover,
+  .change-tab[aria-selected="true"] { border-color: var(--accent); background: var(--surface-2); }
+  .change-tab i {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-style: normal;
+    font-family: var(--mono);
+    background: var(--accent-soft);
+    color: var(--accent-hi);
+    flex: 0 0 auto;
+  }
+  .change-tab strong { display: block; color: var(--ink); line-height: 1.2; }
+  .change-tab span { display: block; color: var(--muted); font-size: .84rem; line-height: 1.35; margin-top: 3px; }
+  .change-detail {
+    min-height: 450px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    padding: 24px;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .fact {
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    padding: 14px;
+    background: var(--bg-2);
+  }
+  .fact h4 { margin: 0 0 6px; color: var(--ink); font-size: .98rem; }
+  .fact p { margin: 0; color: var(--muted); }
+  .source-path {
+    display: inline-flex;
+    margin-top: 16px;
+    max-width: 100%;
+    padding: 7px 9px;
+    border-radius: 6px;
+    background: var(--black);
+    color: var(--cyan);
+    font: .78rem/1.4 var(--mono);
+    overflow-wrap: anywhere;
+  }
+
+  .sim-grid {
+    display: grid;
+    grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+    gap: 20px;
+  }
+  .tool-surface {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    padding: 20px;
+  }
+  .tool-surface h3 {
+    margin: 0 0 8px;
+    color: var(--ink);
+    font-size: 1.25rem;
+  }
+  .tool-surface p { color: var(--muted); margin: 0 0 16px; }
+  .field-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .field label {
+    display: block;
+    color: var(--ink);
+    font-size: .9rem;
+    margin-bottom: 6px;
+  }
+  select,
+  input[type="range"] {
+    width: 100%;
+  }
+  select {
+    min-height: 40px;
+    color: var(--ink);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 0 10px;
+  }
+  input[type="range"] { accent-color: var(--accent); }
+  .bars { display: grid; gap: 11px; margin-top: 16px; }
+  .bar-row {
+    display: grid;
+    grid-template-columns: 135px minmax(0, 1fr) 56px;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: .88rem;
+  }
+  .bar-track {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--black);
+    border: 1px solid var(--line-soft);
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 40%;
+    background: var(--accent);
+    transition: width .24s var(--ease), background-color .24s var(--ease);
+  }
+  .bar-value { font-family: var(--mono); color: var(--ink); text-align: right; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    background: var(--bg-2);
+    font-size: .84rem;
+  }
+  .chip.good { color: var(--green); border-color: oklch(0.55 0.10 154); }
+  .chip.warn { color: var(--amber); border-color: oklch(0.58 0.11 75); }
+
+  .mesh-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr);
+    gap: 20px;
+  }
+  .mesh-stage {
+    min-height: 410px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    padding: 14px;
+    position: relative;
+  }
+  .mesh-stage svg {
+    width: 100%;
+    height: 380px;
+    display: block;
+  }
+  .mesh-node { cursor: pointer; }
+  .mesh-node circle {
+    fill: var(--bg-2);
+    stroke: var(--line);
+    stroke-width: 2;
+    transition: fill .2s var(--ease), stroke .2s var(--ease);
+  }
+  .mesh-node text {
+    fill: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+  }
+  .mesh-node.checked circle { stroke: var(--green); fill: oklch(0.23 0.05 154); }
+  .mesh-node.patched circle { stroke: var(--red); fill: oklch(0.22 0.06 28); }
+  .mesh-edge {
+    stroke: var(--line);
+    stroke-width: 2;
+    fill: none;
+    marker-end: url(#arrow);
+  }
+  .mesh-edge.hot { stroke: var(--amber); }
+  .mesh-controls {
+    display: grid;
+    gap: 14px;
+  }
+  .segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    background: var(--black);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 4px;
+  }
+  .segmented button {
+    min-height: 38px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .segmented button.active { background: var(--surface-3); color: var(--ink); }
+
+  .config-layout {
+    display: grid;
+    grid-template-columns: minmax(280px, .8fr) minmax(0, 1.2fr);
+    gap: 20px;
+  }
+  .check-list {
+    display: grid;
+    gap: 9px;
+  }
+  .small-check {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    color: var(--text);
+  }
+  .small-check input {
+    width: 18px;
+    height: 18px;
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .small-check strong { display: block; color: var(--ink); line-height: 1.25; }
+  .small-check span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.35; margin-top: 2px; }
+  .codebox {
+    position: relative;
+  }
+  .codebox .copy-button {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    background: oklch(0.20 0.014 var(--h) / .94);
+  }
+  .codebox pre { padding-top: 56px; min-height: 460px; }
+
+  .rollout-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .rollout-step {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface);
+    padding: 16px;
+  }
+  .rollout-step b {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent-hi);
+    font-family: var(--mono);
+    margin-bottom: 12px;
+  }
+  .rollout-step h3 { margin: 0 0 8px; color: var(--ink); font-size: 1.05rem; }
+  .rollout-step p { margin: 0; color: var(--muted); font-size: .93rem; }
+
+  .footer {
+    border-top: 1px solid var(--line-soft);
+    padding: 30px clamp(20px, 6vw, 72px);
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  .footer-inner {
+    width: min(1180px, 100%);
+    margin: 0 auto;
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer code { color: var(--cyan); font-family: var(--mono); }
+
+  @media (max-width: 980px) {
+    h1 { font-size: 3.55rem; }
+    .lab,
+    .change-board,
+    .sim-grid,
+    .mesh-layout,
+    .config-layout { grid-template-columns: 1fr; }
+    .rollout-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .topbar nav { display: none; }
+  }
+  @media (max-width: 680px) {
+    .topbar { padding: 0 14px; }
+    .top-actions { display: none; }
+    h1 { font-size: 2.55rem; max-width: 12ch; }
+    .hero-copy { font-size: 1rem; }
+    .hero-media,
+    .hero-media img { min-height: 430px; }
+    .lab { width: calc(100% - 28px); margin-bottom: 30px; }
+    .lab-heading,
+    .section-heading { display: block; }
+    .control-grid,
+    .readout-top,
+    .detail-grid,
+    .field-row,
+    .rollout-grid { grid-template-columns: 1fr; }
+    section { padding: 62px 14px; }
+    .bar-row { grid-template-columns: 1fr; gap: 5px; }
+    .bar-value { text-align: left; }
+    .footer-inner { display: block; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: .01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="site-shell">
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Skidfuscator hardening roadmap">
+      <span class="brand-mark">S</span>
+      <span>Skidfuscator</span>
+    </a>
+    <nav aria-label="Page sections">
+      <a href="#changes">Changes</a>
+      <a href="#simulator">Simulator</a>
+      <a href="#mesh">Tamper mesh</a>
+      <a href="#config">Config</a>
+      <a href="#rollout">Rollout</a>
+    </nav>
+    <div class="top-actions">
+      <button class="icon-button" id="resetLab" title="Reset hardening lab" aria-label="Reset hardening lab">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg>
+      </button>
+      <a class="copy-button" href="#config">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l4 4v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path d="M14 2v6h6"/><path d="M10 13h6"/><path d="M10 17h6"/></svg>
+        Config
+      </a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-media">
+        <img src="header.png" alt="Skidfuscator header artwork with a stylized technical landscape">
+        <div class="hero-title">
+          <div class="hero-title-inner">
+            <div class="kicker">hardening roadmap</div>
+            <h1 id="hero-title">Make the seed less useful.</h1>
+            <p class="hero-copy">
+              The next jump is not one more opaque predicate. It is making every recovered seed ambiguous, site-bound, tamper-coupled, and annoying to reuse across a deobfuscation pipeline.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="lab" aria-label="Interactive hardening lab">
+        <article class="lab-panel">
+          <div class="lab-heading">
+            <div>
+              <h2>Hardening lab</h2>
+              <p>Toggle the proposed changes and watch the model shift from direct algebra to mixed, contextual key material.</p>
+            </div>
+          </div>
+          <div class="control-grid" id="hardeningControls"></div>
+        </article>
+
+        <aside class="readout-panel" aria-live="polite">
+          <div class="readout-top">
+            <div class="metric">
+              <b id="metricBits">32</b>
+              <span>threaded seed bits</span>
+            </div>
+            <div class="metric">
+              <b id="metricPreimages">1</b>
+              <span>guard preimages</span>
+            </div>
+            <div class="metric">
+              <b id="metricReuse">high</b>
+              <span>key reuse value</span>
+            </div>
+          </div>
+          <div class="equation">
+            <pre id="equationBox"></pre>
+            <div class="meter" aria-label="Automation resistance">
+              <div class="meter-fill" id="hardeningMeter"></div>
+            </div>
+            <p class="readout-note" id="labNote"></p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="changes">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>What changes, and why it matters</h2>
+            <p>Each item maps to the actual weakness it addresses: unique seed inversion, recognizable math, reusable decrypt keys, predictable build randomness, legacy hash shapes, visible tamper checks, and linear call graphs.</p>
+          </div>
+          <p class="small">Click a change to see the attack it disrupts, the implementation direction, and the source area it touches.</p>
+        </div>
+        <div class="change-board">
+          <div class="change-list" id="changeList" role="tablist" aria-label="Hardening changes"></div>
+          <article class="change-detail" id="changeDetail" tabindex="0"></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="simulator">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>Seed and encoder simulator</h2>
+            <p>The core difference is whether a deobfuscator sees a repeatable equation or a site-specific derivation that must be traced in context.</p>
+          </div>
+        </div>
+        <div class="sim-grid">
+          <article class="tool-surface">
+            <h3>Model the emitted shape</h3>
+            <p>Change the seed mode and encoder family to compare recognizable bytecode patterns.</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="seedMode">Seed mode</label>
+                <select id="seedMode">
+                  <option value="int">32-bit int seed</option>
+                  <option value="wide">64-bit wide seed</option>
+                  <option value="wideCompressed">64-bit + compressed guard</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="encoderMode">Encoder family</label>
+                <select id="encoderMode">
+                  <option value="xor">XOR only</option>
+                  <option value="arx">ARX expression pool</option>
+                  <option value="feistel">Small Feistel network</option>
+                  <option value="kdf">Site-bound KDF</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="literalCount">Protected constants in this method: <span id="literalCountValue">9</span></label>
+              <input id="literalCount" type="range" min="1" max="40" value="9">
+            </div>
+            <div class="bars" id="simBars"></div>
+          </article>
+          <article class="tool-surface codebox">
+            <h3>Resulting analysis surface</h3>
+            <p>The pseudo-code is intentionally simplified, but it shows what a tool can pattern-match.</p>
+            <pre id="simCode"></pre>
+            <div class="chip-row" id="simChips"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="mesh">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>Tamper mesh behavior</h2>
+            <p>Tier A detects common static patching, but its DAG shape leaves a structural source. Tier B moves expected constants out of the hashed region so checks can form cycles.</p>
+          </div>
+        </div>
+        <div class="mesh-layout">
+          <div class="mesh-stage">
+            <svg id="meshSvg" viewBox="0 0 720 380" role="img" aria-label="Interactive tamper protection mesh"></svg>
+          </div>
+          <aside class="tool-surface mesh-controls">
+            <h3>Patch a class</h3>
+            <p>Select a mesh tier and a class to patch. Highlighted edges show which checker trips.</p>
+            <div class="segmented" role="group" aria-label="Tamper tier">
+              <button id="tierA" class="active" type="button">Tier A DAG</button>
+              <button id="tierB" type="button">Tier B cyclic</button>
+            </div>
+            <div class="field">
+              <label for="patchedClass">Patched class</label>
+              <select id="patchedClass">
+                <option value="Auth">Auth</option>
+                <option value="License">License</option>
+                <option value="Strings">Strings</option>
+                <option value="Flow">Flow</option>
+                <option value="Main">Main</option>
+                <option value="Decoy">Decoy</option>
+              </select>
+            </div>
+            <div class="fact">
+              <h4 id="meshTitle">Tier A result</h4>
+              <p id="meshText"></p>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="config">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>Hardened profile generator</h2>
+            <p>Use this as the starting HOCON for a test branch. It intentionally separates compatibility-safe defaults from higher-risk structural passes.</p>
+          </div>
+        </div>
+        <div class="config-layout">
+          <article class="tool-surface">
+            <h3>Profile options</h3>
+            <p>Turn on the groups you want in the generated snippet.</p>
+            <div class="check-list" id="profileChecks"></div>
+          </article>
+          <article class="codebox">
+            <button class="copy-button" id="copyConfig" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy
+            </button>
+            <pre id="configOutput"></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="rollout">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>Rollout order</h2>
+            <p>Ship the changes as a ladder. Each rung should have fixture jars, bytecode verification, runtime smoke tests, and a deobfuscation regression sample.</p>
+          </div>
+        </div>
+        <div class="rollout-grid">
+          <article class="rollout-step">
+            <b>1</b>
+            <h3>Expose the hardened profile</h3>
+            <p>Make wide seed, compressed guard, salted fold, SDK, and silent tamper a named preset. Keep defaults conservative.</p>
+          </article>
+          <article class="rollout-step">
+            <b>2</b>
+            <h3>Replace XOR-only paths</h3>
+            <p>Add polymorphic int and long encoders, then route NumberManager and wide seed loaders through them.</p>
+          </article>
+          <article class="rollout-step">
+            <b>3</b>
+            <h3>Bind keys to sites</h3>
+            <p>Derive string, invokedynamic, and constant keys from seed plus class, method, block, literal index, and salt.</p>
+          </article>
+          <article class="rollout-step">
+            <b>4</b>
+            <h3>Close the mesh</h3>
+            <p>Move tamper to method-code-region hashing, allow cycles, then feed the result into flow or decrypt key derivation.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>Built as an offline repo page for legitimate software protection planning.</span>
+      <span><code>docs/hardening-roadmap.html</code></span>
+    </div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+const hardeningControls = [
+  ["wide", "Wide 64-bit seed", "Threads a long through the flow local instead of relying on the low 32 bits."],
+  ["compress", "Compressed guard", "Folds 64 bits to a lossy 32-bit guard so one constant has many seed preimages."],
+  ["salt", "Salted fold", "Uses a high-word keyed multiply fold to reduce cross-guard correlation."],
+  ["mixed", "Mixed encoders", "Replaces the recognizable XOR-only equation with polymorphic int and long expressions."],
+  ["kdf", "Site-bound KDF", "Derives decrypt keys from seed plus class, method, block, literal index, and salt."],
+  ["drbg", "Build DRBG", "Uses build-scoped secure entropy and labeled derivation instead of one global Random stream."],
+  ["hash", "Hasher unification", "Moves legacy switch/range seed loaders onto the rotating VM/polymorphic hash path."],
+  ["tamper", "Tamper-coupled keys", "Feeds integrity checks into flow or decrypt key material instead of only throwing."],
+  ["struct", "Structural passes", "Adds signature carriers, method dispatch, method merge, and invokedynamic where tests allow."]
+];
+
+const defaultState = {
+  wide: true,
+  compress: true,
+  salt: true,
+  mixed: true,
+  kdf: true,
+  drbg: true,
+  hash: true,
+  tamper: false,
+  struct: false
+};
+
+const changes = [
+  {
+    id: "wide",
+    label: "Wide seed + compressed guards",
+    short: "Stop one guard from revealing one seed.",
+    why: "The old guard model lets a constant line up with a single 32-bit predicate. Wide seed plus non-injective folding means a guard constant gives a cloud of candidates, not the answer.",
+    changes: "Keep the legacy int projection for old consumers, but store and thread a 64-bit flow value for guards, strings, and call-site seed material.",
+    impact: "Seed-cracking moves from direct inversion to path tracing. Automated tools must recover the live high word and the edge history, not just solve one expression.",
+    path: "DefaultSkidConfig.java, BasicConditionTransformer.java, IntegerBlockPredicateRenderer.java"
+  },
+  {
+    id: "mixed",
+    label: "Polymorphic number encoders",
+    short: "Retire the K xor seed recognizer.",
+    why: "NumberManager currently routes most constants through XOR. That is easy to fingerprint and easy to simplify once the seed is known.",
+    changes: "Add int and long encoder families: ARX chains, rotate/multiply/xor templates, small Feistel rounds, and per-site expression pools.",
+    impact: "A deobfuscator cannot rely on one algebraic rewrite. It has to normalize several shapes and prove equivalence site by site.",
+    path: "NumberManager.java, XorNumberTransformer.java, RandomShiftNumberTransformer.java"
+  },
+  {
+    id: "kdf",
+    label: "Site-bound decrypt keys",
+    short: "Make a recovered seed less reusable.",
+    why: "If string and invokedynamic names key directly from the live seed, tracing one block leaks too much value.",
+    changes: "Derive keys with seed64, class id, method id, block id, literal index, salt, and optional tamper digest.",
+    impact: "One recovered key unlocks one site. Bulk literal extraction now needs control-flow context and site metadata.",
+    path: "AbstractEncryptionGeneratorV3.java, Base64PaddedV3EncryptionGenerator.java, InvokeDynamicMethodTransformer.java"
+  },
+  {
+    id: "drbg",
+    label: "Secure build entropy",
+    short: "Remove global Random predictability.",
+    why: "A single java.util.Random stream is convenient, but it makes output families easier to diff and can leak sequencing patterns across names, pads, and predicates.",
+    changes: "Create a build seed from SecureRandom, then derive labeled per-class, method, block, literal, and transformer values.",
+    impact: "Builds stay diverse without relying on global call order. Optional reproducible builds can use an explicit secret seed.",
+    path: "RandomUtil.java, IntegerMethodOpaquePredicate.java, IntegerBlockOpaquePredicate.java"
+  },
+  {
+    id: "hash",
+    label: "Hasher unification",
+    short: "Remove the legacy hash island.",
+    why: "Some switch and range paths still use the legacy generated hasher while condition hashing uses the VM/pinned path.",
+    changes: "Route randomHasher and seed-loader hash calls through the same rotating polymorphic hasher pool, with wide folding where applicable.",
+    impact: "The output has fewer stable fingerprints. Reversing one helper stops teaching the analyst every seeded branch.",
+    path: "NumberManager.java, SwitchSeedLoaderRenderer.java, VmHashTransformer.java"
+  },
+  {
+    id: "tamper",
+    label: "Tamper mesh Tier B",
+    short: "Move from detection to corrupted context.",
+    why: "Tier A whole-file checks are useful, but the check call is visible and a DAG always has a source nobody checks.",
+    changes: "Hash designated method Code regions, store expected constants outside hashed regions, allow cycles, then mix tamper result into seed or KDF material.",
+    impact: "Patchers must understand the mesh and preserve behavior, not just delete a visible verification call.",
+    path: "TAMPER_PROTECTION_DESIGN.md, TamperJarDumper.java, sdk/Tamper.java"
+  },
+  {
+    id: "struct",
+    label: "Structural hardening passes",
+    short: "Make call graphs and signatures lie.",
+    why: "Even strong constant protection leaves readable method boundaries if calls and descriptors stay ordinary.",
+    changes: "Use signature carriers, method dispatch, method merge, and invokedynamic callsites on test-backed releases.",
+    impact: "Static call graph recovery becomes probabilistic and path-sensitive. The cost shifts from naming symbols to reconstructing dispatch semantics.",
+    path: "SignatureObfuscationTransformer.java, MethodDispatchTransformer.java, MethodMergeTransformer.java"
+  }
+];
+
+const profileOptions = [
+  ["safe", "Core hardened profile", "Wide seed, guard compression, salted fold, SDK, silent tamper.", true],
+  ["strings", "Site-bound strings", "KDF-derived string and annotation keys once implemented.", true],
+  ["numbers", "Polymorphic number encoders", "Route int and long constants through mixed encoder families.", true],
+  ["hashers", "Unified hashers", "Retire legacy hasher use in switch/range seed loading.", true],
+  ["structural", "Risky structural passes", "Signature obfuscation, dispatch, merge, invokedynamic.", false],
+  ["decoys", "Exception decoy calls", "Extra valid decoy calls in fake failure paths.", false]
+];
+
+const controlRoot = document.getElementById("hardeningControls");
+for (const [key, title, text] of hardeningControls) {
+  const label = document.createElement("label");
+  label.className = "control";
+  label.innerHTML = `<input type="checkbox" data-hardening="${key}"><span><strong>${title}</strong><span>${text}</span></span>`;
+  const input = label.querySelector("input");
+  input.checked = Boolean(defaultState[key]);
+  input.addEventListener("change", updateLab);
+  controlRoot.append(label);
+}
+
+document.getElementById("resetLab").addEventListener("click", () => {
+  document.querySelectorAll("[data-hardening]").forEach(input => {
+    input.checked = Boolean(defaultState[input.dataset.hardening]);
+  });
+  updateLab();
+});
+
+function getHardeningState() {
+  const state = {};
+  document.querySelectorAll("[data-hardening]").forEach(input => {
+    state[input.dataset.hardening] = input.checked;
+  });
+  if (!state.wide) {
+    state.compress = false;
+    state.salt = false;
+  }
+  if (!state.compress) state.salt = false;
+  return state;
+}
+
+function updateLab() {
+  const state = getHardeningState();
+  document.querySelector('[data-hardening="compress"]').disabled = !state.wide;
+  document.querySelector('[data-hardening="salt"]').disabled = !state.compress;
+  const bits = state.wide ? 64 : 32;
+  const preimages = state.compress ? "2^32" : "1";
+  const reuse = state.kdf ? (state.tamper ? "low" : "site") : "high";
+  let score = 14;
+  if (state.wide) score += 14;
+  if (state.compress) score += 12;
+  if (state.salt) score += 7;
+  if (state.mixed) score += 14;
+  if (state.kdf) score += 14;
+  if (state.drbg) score += 7;
+  if (state.hash) score += 9;
+  if (state.tamper) score += 11;
+  if (state.struct) score += 9;
+  score = Math.min(score, 100);
+  document.getElementById("metricBits").textContent = bits;
+  document.getElementById("metricPreimages").textContent = preimages;
+  document.getElementById("metricReuse").textContent = reuse;
+  document.getElementById("hardeningMeter").style.width = `${score}%`;
+  const equation = state.kdf
+    ? `seed64 = flow.long\nfold   = ${state.salt ? "(low ^ high) * (high | 1)" : state.compress ? "low ^ high" : "(int) seed64"}\nkey    = KDF(seed64, class, method, block, literal, salt${state.tamper ? ", tamperDigest" : ""})\nvalue  = ${state.mixed ? "decode_arx_or_feistel(cipher, key)" : "cipher ^ key"}`
+    : `seed  = ${state.wide ? "flow.long" : "flow.int"}\nvalue = (constant ^ seed) ^ runtimeSeed\nguard = hash(${state.compress ? "fold(seed64)" : "seed"})`;
+  document.getElementById("equationBox").textContent = equation;
+  const note = score >= 80
+    ? "The build is now hostile to one-shot seed cracking: the live path, site identity, and optional tamper state all matter."
+    : score >= 55
+      ? "This is a strong compatibility profile, but reusable patterns remain where keys and constants are still directly seed-shaped."
+      : "This still looks like a direct algebra problem. Useful obfuscation, but friendly to automated simplification.";
+  document.getElementById("labNote").textContent = note;
+}
+
+const changeList = document.getElementById("changeList");
+changes.forEach((item, index) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "change-tab";
+  button.setAttribute("role", "tab");
+  button.setAttribute("aria-selected", index === 0 ? "true" : "false");
+  button.innerHTML = `<i>${index + 1}</i><span><strong>${item.label}</strong><span>${item.short}</span></span>`;
+  button.addEventListener("click", () => selectChange(index));
+  changeList.append(button);
+});
+
+function selectChange(index) {
+  const item = changes[index];
+  document.querySelectorAll(".change-tab").forEach((tab, i) => {
+    tab.setAttribute("aria-selected", i === index ? "true" : "false");
+  });
+  document.getElementById("changeDetail").innerHTML = `
+    <h3 style="margin:0;color:var(--ink);font-size:1.55rem;line-height:1.15">${item.label}</h3>
+    <p style="margin:10px 0 0;color:var(--muted);max-width:72ch">${item.short}</p>
+    <div class="detail-grid">
+      <div class="fact"><h4>Why</h4><p>${item.why}</p></div>
+      <div class="fact"><h4>What changes</h4><p>${item.changes}</p></div>
+      <div class="fact"><h4>What it breaks for deobf</h4><p>${item.impact}</p></div>
+      <div class="fact"><h4>Rollout risk</h4><p>${item.id === "struct" || item.id === "tamper" ? "High: test against real apps and verifier-sensitive bytecode." : item.id === "drbg" ? "Low to medium: mostly output diversity and reproducibility policy." : "Medium: bytecode verification and runtime fixtures needed."}</p></div>
+    </div>
+    <span class="source-path">${item.path}</span>
+  `;
+}
+
+const barsRoot = document.getElementById("simBars");
+const simMetrics = [
+  ["recognizer", "Recognizer cost"],
+  ["trace", "Path tracing need"],
+  ["reuse", "Bulk reuse resistance"],
+  ["runtime", "Runtime cost"]
+];
+for (const [key, label] of simMetrics) {
+  const row = document.createElement("div");
+  row.className = "bar-row";
+  row.innerHTML = `<span>${label}</span><div class="bar-track"><div class="bar-fill" data-bar="${key}"></div></div><span class="bar-value" data-bar-value="${key}">0</span>`;
+  barsRoot.append(row);
+}
+
+function updateSimulator() {
+  const seed = document.getElementById("seedMode").value;
+  const enc = document.getElementById("encoderMode").value;
+  const count = Number(document.getElementById("literalCount").value);
+  document.getElementById("literalCountValue").textContent = String(count);
+  const seedBonus = seed === "int" ? 0 : seed === "wide" ? 18 : 30;
+  const encBonus = { xor: 0, arx: 24, feistel: 34, kdf: 48 }[enc];
+  const values = {
+    recognizer: Math.min(100, 18 + encBonus + (enc === "kdf" ? 16 : 0)),
+    trace: Math.min(100, 12 + seedBonus + (enc === "kdf" ? 36 : 0)),
+    reuse: Math.min(100, 10 + seedBonus + encBonus + Math.round(count / 3)),
+    runtime: Math.min(100, 8 + ({ xor: 5, arx: 18, feistel: 32, kdf: 26 }[enc]) + (seed === "wideCompressed" ? 6 : 0))
+  };
+  for (const [key, value] of Object.entries(values)) {
+    const fill = document.querySelector(`[data-bar="${key}"]`);
+    fill.style.width = `${value}%`;
+    fill.style.background = key === "runtime" ? "var(--amber)" : value > 70 ? "var(--green)" : value > 45 ? "var(--amber)" : "var(--red)";
+    document.querySelector(`[data-bar-value="${key}"]`).textContent = `${value}`;
+  }
+  const code = {
+    xor: `// recognizable shape\nencoded = (plain ^ seed) ^ runtimeSeed;\nseed = ${seed === "int" ? "flow.int" : "flow.long"};`,
+    arx: `// per-site arithmetic/rotate/xor template\nx = runtimeSeed + siteSalt;\nx = rotl(x ^ c1, r1) * oddMul;\nencoded = plain ^ (x + c2);`,
+    feistel: `// small reversible network\nL, R = split(runtimeSeed ^ siteSalt);\nrepeat rounds:\n  L, R = R, L ^ F(R, roundKey);\nencoded = plain ^ join(L, R);`,
+    kdf: `// site-bound key material\nkey = KDF(seed64, owner, name, desc, blockId, literalIndex, salt);\nencoded = stream_xor(cipher, key);\n// recovered seed alone is not the key`
+  }[enc];
+  document.getElementById("simCode").textContent = `${code}\n\nconstantsInMethod = ${count};\nseedMode = "${seed}";`;
+  const chips = [];
+  chips.push(seed === "int" ? ["warn", "unique int guard"] : ["good", "64-bit flow value"]);
+  chips.push(seed === "wideCompressed" ? ["good", "lossy guard fold"] : ["warn", "injective guard path"]);
+  chips.push(enc === "xor" ? ["warn", "single recognizer"] : ["good", "polymorphic shape"]);
+  chips.push(enc === "kdf" ? ["good", "site-bound key"] : ["warn", "seed-derived only"]);
+  document.getElementById("simChips").innerHTML = chips.map(([tone, text]) => `<span class="chip ${tone}">${text}</span>`).join("");
+}
+
+document.getElementById("seedMode").addEventListener("change", updateSimulator);
+document.getElementById("encoderMode").addEventListener("change", updateSimulator);
+document.getElementById("literalCount").addEventListener("input", updateSimulator);
+
+const meshNodes = {
+  Auth: [140, 82],
+  License: [360, 70],
+  Strings: [575, 124],
+  Flow: [555, 286],
+  Main: [326, 310],
+  Decoy: [115, 238]
+};
+const tierEdges = {
+  A: [["License", "Auth"], ["Strings", "License"], ["Flow", "Strings"], ["Main", "Flow"], ["Decoy", "Main"]],
+  B: [["License", "Auth"], ["Strings", "License"], ["Flow", "Strings"], ["Main", "Flow"], ["Decoy", "Main"], ["Auth", "Flow"], ["Flow", "License"], ["Main", "Strings"], ["Strings", "Decoy"]]
+};
+let meshTier = "A";
+
+function renderMesh() {
+  const patched = document.getElementById("patchedClass").value;
+  const edges = tierEdges[meshTier];
+  const checking = edges.filter(([, target]) => target === patched).map(([source]) => source);
+  const svg = document.getElementById("meshSvg");
+  const edgeMarkup = edges.map(([source, target]) => {
+    const [x1, y1] = meshNodes[source];
+    const [x2, y2] = meshNodes[target];
+    const hot = target === patched ? " hot" : "";
+    return `<path class="mesh-edge${hot}" d="M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1}, ${(x1 + x2) / 2} ${y2}, ${x2} ${y2}"/>`;
+  }).join("");
+  const nodeMarkup = Object.entries(meshNodes).map(([name, [x, y]]) => {
+    const cls = ["mesh-node"];
+    if (name === patched) cls.push("patched");
+    if (checking.includes(name)) cls.push("checked");
+    return `<g class="${cls.join(" ")}" data-node="${name}" transform="translate(${x} ${y})"><circle r="35"/><text>${name}</text></g>`;
+  }).join("");
+  svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="oklch(0.82 0.15 75)"/></marker></defs>${edgeMarkup}${nodeMarkup}`;
+  svg.querySelectorAll(".mesh-node").forEach(node => {
+    node.addEventListener("click", () => {
+      document.getElementById("patchedClass").value = node.dataset.node;
+      renderMesh();
+    });
+  });
+  const uncovered = meshTier === "A" && checking.length === 0;
+  document.getElementById("meshTitle").textContent = meshTier === "A" ? "Tier A result" : "Tier B result";
+  document.getElementById("meshText").textContent = uncovered
+    ? `${patched} is the exposed source in this DAG model. Tier A should make that class low-value or decoy-like, but it cannot remove the source gap.`
+    : `${patched} is checked by ${checking.join(", ")}. A patch changes the target bytes, so the highlighted checker compares against stale expected material.`;
+}
+
+document.getElementById("tierA").addEventListener("click", () => {
+  meshTier = "A";
+  document.getElementById("tierA").classList.add("active");
+  document.getElementById("tierB").classList.remove("active");
+  renderMesh();
+});
+document.getElementById("tierB").addEventListener("click", () => {
+  meshTier = "B";
+  document.getElementById("tierB").classList.add("active");
+  document.getElementById("tierA").classList.remove("active");
+  renderMesh();
+});
+document.getElementById("patchedClass").addEventListener("change", renderMesh);
+
+const profileRoot = document.getElementById("profileChecks");
+for (const [key, title, text, checked] of profileOptions) {
+  const label = document.createElement("label");
+  label.className = "small-check";
+  label.innerHTML = `<input type="checkbox" data-profile="${key}" ${checked ? "checked" : ""}><span><strong>${title}</strong><span>${text}</span></span>`;
+  label.querySelector("input").addEventListener("change", updateConfig);
+  profileRoot.append(label);
+}
+
+function profileEnabled(key) {
+  const input = document.querySelector(`[data-profile="${key}"]`);
+  return input && input.checked;
+}
+
+function updateConfig() {
+  const parts = [];
+  if (profileEnabled("safe")) {
+    parts.push(`seed { wide = true }\n\nflowCondition {\n  enabled = true\n  compressing {\n    enabled = true\n    salt = true\n  }\n}\n\nsdk { enabled = true }\n\ntamperProtection {\n  enabled = true\n  action = SILENT\n}`);
+  }
+  if (profileEnabled("strings")) {
+    parts.push(`stringEncryption {\n  enabled = true\n  type = STANDARD\n  # future: keyDerivation = SITE_BOUND\n}\n\nstringAnnotationEncryption { enabled = true }\nintAnnotationEncryption { enabled = true }`);
+  }
+  if (profileEnabled("numbers")) {
+    parts.push(`numberEncryption {\n  enabled = true\n  # future: encoders = [XOR, ARX, FEISTEL]\n  # future: longEncoders = [ARX64, FEISTEL64]\n}`);
+  }
+  if (profileEnabled("hashers")) {
+    parts.push(`pureEncryption { enabled = true }\nflowSwitch { enabled = true }\nflowRange { enabled = true }\n# future: hashers = POLYMORPHIC_ROTATING`);
+  }
+  if (profileEnabled("structural")) {
+    parts.push(`signatureObfuscation {\n  enabled = true\n  arguments = true\n  returns = true\n  returnThreadKey = true\n}\n\nmethodDispatch { enabled = true }\nmethodMerge { enabled = true }\nmethodCallObfuscation { enabled = true }`);
+  }
+  if (profileEnabled("decoys")) {
+    parts.push(`flowException {\n  enabled = true\n  strength = AGGRESSIVE\n  decoyCalls {\n    enabled = true\n    scope = APPLICATION_AND_EXEMPT\n    includeLibraries = false\n    maxArgs = 5\n  }\n}`);
+  }
+  document.getElementById("configOutput").textContent = parts.join("\n\n");
+}
+
+document.getElementById("copyConfig").addEventListener("click", async () => {
+  const text = document.getElementById("configOutput").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    document.getElementById("copyConfig").lastChild.textContent = "Copied";
+    setTimeout(() => { document.getElementById("copyConfig").lastChild.textContent = "Copy"; }, 1200);
+  } catch {
+    window.getSelection().selectAllChildren(document.getElementById("configOutput"));
+  }
+});
+
+selectChange(0);
+updateLab();
+updateSimulator();
+renderMesh();
+updateConfig();
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skidfuscator Class Web</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail" aria-label="Class web filters">
+      <header class="brand">
+        <span class="mark" aria-hidden="true">SW</span>
+        <div>
+          <h1>Class Web</h1>
+          <p>Skidfuscator static source map</p>
+        </div>
+      </header>
+
+      <section class="stats-grid" aria-label="Repository summary">
+        <div><b id="statClasses">0</b><span>classes</span></div>
+        <div><b id="statMethods">0</b><span>methods</span></div>
+        <div><b id="statThreaded">0</b><span>threaded</span></div>
+        <div><b id="statRestricted">0</b><span>restricted</span></div>
+      </section>
+
+      <label class="search-box">
+        <span>Search</span>
+        <input id="searchInput" type="search" autocomplete="off" placeholder="Class, package, method, file">
+      </label>
+
+      <section class="control-block">
+        <h2>Thread Status</h2>
+        <div id="statusFilters" class="chip-grid"></div>
+      </section>
+
+      <section class="control-block">
+        <h2>Source Set</h2>
+        <div id="sourceFilters" class="check-grid"></div>
+      </section>
+
+      <section class="control-block">
+        <div class="block-title-row">
+          <h2>Restrictions</h2>
+          <button id="clearRestrictions" class="inline-button" type="button">Clear</button>
+        </div>
+        <div id="restrictionFilters" class="chip-grid compact"></div>
+      </section>
+
+      <section class="control-block grow">
+        <div class="block-title-row">
+          <h2>Packages</h2>
+          <button id="resetFilters" class="inline-button" type="button">Reset</button>
+        </div>
+        <div id="packageList" class="package-list"></div>
+      </section>
+    </aside>
+
+    <main class="graph-shell">
+      <div class="graph-toolbar">
+        <div>
+          <div class="surface-title">Visual Class Web</div>
+          <div id="visibleSummary" class="surface-subtitle">0 visible nodes</div>
+        </div>
+        <div class="legend" aria-label="Graph legend">
+          <span><i class="dot seed"></i>Seed threaded</span>
+          <span><i class="dot aware"></i>Thread aware</span>
+          <span><i class="dot review"></i>Review</span>
+          <span><i class="dot neutral"></i>Neutral</span>
+          <span><i class="ring"></i>Restriction</span>
+        </div>
+        <div class="toolbar-actions">
+          <button id="fitGraph" class="tool-button" type="button" title="Fit graph">Fit</button>
+          <button id="pauseGraph" class="tool-button" type="button" title="Pause layout">Pause</button>
+        </div>
+      </div>
+      <div class="graph-stage">
+        <canvas id="graphCanvas"></canvas>
+        <div id="graphTooltip" class="tooltip" hidden></div>
+      </div>
+    </main>
+
+    <aside class="inspector" aria-label="Class inspector">
+      <header class="inspector-head">
+        <div>
+          <h2 id="inspectorTitle">Selection</h2>
+          <p id="inspectorSubtitle">Static evidence dashboard</p>
+        </div>
+      </header>
+      <div id="inspectorBody" class="inspector-body"></div>
+    </aside>
+  </div>
+
+  <script src="class-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

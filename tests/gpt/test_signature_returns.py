@@ -111,10 +111,10 @@ class SignatureReturnObfuscationTests(unittest.TestCase):
         ):
             self.assertIn(expected, self.source)
 
-    def test_threaded_key_is_callee_side_and_caller_is_carry_only(self) -> None:
-        # Key only when the trailing parameter is an int (the threaded seed).
+    def test_threaded_key_is_callee_side_and_caller_seed_is_xored(self) -> None:
+        # Key only when hierarchy metadata says interprocedural really threaded the method.
         self.assertIn(
-            "argumentTypes[argumentTypes.length - 1].getSort() == Type.INT",
+            "threadedSeedMethods.contains(key)",
             self.source,
         )
         # Seed captured at entry and appended (bytes for byte[], boxed for Object[]).
@@ -124,8 +124,11 @@ class SignatureReturnObfuscationTests(unittest.TestCase):
             self.source,
         )
         self.assertIn("private int seedParamLocal(final String oldDesc, final boolean isStatic)", self.source)
-        # Caller reconstructs the value from the FRONT of the array; key slot ignored.
-        self.assertIn("private InsnList unpackReturnValue(final Type returnType)", self.source)
+        # Threaded callers fold the returned key into their own seed before unpacking the value.
+        self.assertIn("private InsnList unpackReturnValue(final Type returnType,", self.source)
+        self.assertIn("private void emitReturnedKeyFold(final InsnList insns,", self.source)
+        self.assertIn("insns.add(new InsnNode(Opcodes.IXOR));", self.source)
+        self.assertIn("insns.add(new VarInsnNode(Opcodes.ISTORE, callerSeedLocal));", self.source)
         self.assertIn("emitPrimitiveUnpack(post, arrayLocal, 0, returnType);", self.source)
         self.assertIn("post.add(new InsnNode(Opcodes.ICONST_0));", self.source)
 
@@ -140,7 +143,7 @@ class SignatureReturnObfuscationTests(unittest.TestCase):
             "method.instructions.insertBefore(methodInsn, packArguments(argumentTypes, isStatic));",
             "methodInsn.desc = candidate.newDesc;",
             "if (candidate.rewriteReturn) {",
-            "method.instructions.insert(methodInsn, unpackReturnValue(returnType));",
+            "unpackReturnValue(returnType, candidate.threadKey, callerSeedLocal)",
         ):
             self.assertIn(expected, self.source)
         # Original return type captured BEFORE the descriptor is overwritten.

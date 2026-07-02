@@ -1,6 +1,8 @@
 package dev.skidfuscator.obfuscator.transform.impl.signature;
 
 import dev.skidfuscator.obfuscator.Skidfuscator;
+import dev.skidfuscator.obfuscator.hierarchy.Hierarchy;
+import dev.skidfuscator.obfuscator.skidasm.SkidGroup;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 import org.mapleir.asm.ClassNode;
 import org.objectweb.asm.Handle;
@@ -68,6 +70,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         final Map<MethodKey, MethodNode> methods = indexMethods(classes);
         final Set<MethodKey> handleReferences = collectHandleReferences(classes);
         final Map<MethodKey, Integer> internalCallCounts = collectInternalCalls(classes);
+        final Set<MethodKey> threadedSeedMethods = collectThreadedSeedMethods();
 
         /*
          * Two orthogonal, independently-toggleable rewrites share the same
@@ -77,10 +80,8 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
          *                or Object[] (reference/array returns).
          * With returnThreadKey, the method's threaded flow seed (the trailing
          * int parameter added by interprocedural threading) is appended as the
-         * LAST array slot. Callers are carry-only: they read the real value from
-         * the FRONT of the array and never touch the key slot, so the key is a
-         * pure callee-side emission and the caller-side unpack is identical
-         * whether or not a key is present.
+         * LAST array slot. Threaded callers fold that returned key into their own
+         * threaded seed local with XOR before reconstructing the real value.
          */
         final boolean obfuscateArgs = getConfig().getBoolean("arguments", true);
         final boolean obfuscateReturns = getConfig().getBoolean("returns", false);
@@ -96,7 +97,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             final MethodNode method = entry.getValue();
 
             final Candidate candidate = buildCandidate(key, method, classes, handleReferences,
-                    internalCallCounts, obfuscateArgs, obfuscateReturns, threadReturnKey);
+                    internalCallCounts, threadedSeedMethods, obfuscateArgs, obfuscateReturns, threadReturnKey);
             if (candidate == null) {
                 skip();
                 continue;
@@ -112,7 +113,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             return;
         }
 
-        rewriteCallsites(classes, candidates);
+        rewriteCallsites(classes, candidates, threadedSeedMethods);
 
         for (Map.Entry<MethodKey, Candidate> entry : candidates.entrySet()) {
             final MethodNode method = methods.get(entry.getKey());
@@ -376,6 +377,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                                      final Map<String, org.objectweb.asm.tree.ClassNode> classes,
                                      final Set<MethodKey> handleReferences,
                                      final Map<MethodKey, Integer> internalCallCounts,
+                                     final Set<MethodKey> threadedSeedMethods,
                                      final boolean obfuscateArgs,
                                      final boolean obfuscateReturns,
                                      final boolean threadReturnKey) {
@@ -443,8 +445,7 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
          * the entry-capture ILOAD stays verifier-valid.
          */
         final boolean threadKey = rewriteReturn && threadReturnKey
-                && argumentTypes.length > 0
-                && argumentTypes[argumentTypes.length - 1].getSort() == Type.INT;
+                && threadedSeedMethods.contains(key);
 
         return new Candidate(newDesc, rewriteArgs, rewriteReturn, returnType, threadKey);
     }
@@ -627,12 +628,18 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
     }
 
     private void rewriteCallsites(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
-                                  final Map<MethodKey, Candidate> candidates) {
+                                  final Map<MethodKey, Candidate> candidates,
+                                  final Set<MethodKey> threadedSeedMethods) {
         for (org.objectweb.asm.tree.ClassNode classNode : classes.values()) {
             for (MethodNode method : classNode.methods) {
                 boolean changed = false;
                 method.maxLocals = Math.max(method.maxLocals, computeLocalLimit(method));
                 nextScratchLocal = method.maxLocals;
+                final boolean callerStatic = (method.access & Opcodes.ACC_STATIC) != 0;
+                final MethodKey callerKey = new MethodKey(classNode.name, method.name, method.desc);
+                final int callerSeedLocal = threadedSeedMethods.contains(callerKey)
+                        ? seedParamLocal(method.desc, callerStatic)
+                        : -1;
                 for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (!(insn instanceof MethodInsnNode)) {
                         continue;
@@ -658,7 +665,8 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                     }
                     methodInsn.desc = candidate.newDesc;
                     if (candidate.rewriteReturn) {
-                        method.instructions.insert(methodInsn, unpackReturnValue(returnType));
+                        method.instructions.insert(methodInsn,
+                                unpackReturnValue(returnType, candidate.threadKey, callerSeedLocal));
                     }
                     changed = true;
                 }
@@ -671,6 +679,29 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                 }
             }
         }
+    }
+
+    private Set<MethodKey> collectThreadedSeedMethods() {
+        final Set<MethodKey> threaded = new HashSet<>();
+        final Hierarchy hierarchy = skidfuscator.getHierarchy();
+        if (hierarchy == null || hierarchy.getGroups() == null) {
+            return threaded;
+        }
+
+        for (SkidGroup group : hierarchy.getGroups()) {
+            if (group == null || !group.isInjectedMethodPredicate() || !hasTrailingIntSeed(group.getDesc())) {
+                continue;
+            }
+
+            for (org.mapleir.asm.MethodNode methodNode : group.getMethodNodeList()) {
+                if (methodNode == null || methodNode.owner == null || methodNode.node == null) {
+                    continue;
+                }
+                threaded.add(new MethodKey(methodNode.owner.getName(), methodNode.getName(), methodNode.node.desc));
+            }
+        }
+
+        return threaded;
     }
 
     private MethodKey resolveMethod(final Map<String, org.objectweb.asm.tree.ClassNode> classes,
@@ -890,14 +921,20 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
      * Inserted directly after a rewritten callsite whose target now returns an
      * array carrier: reconstructs the original return value from the FRONT of
      * the array (bytes {@code [0, size)} for {@code byte[]}, slot 0 for
-     * {@code Object[]}), leaving exactly the original type on the stack. Any
-     * trailing threaded-key slot is ignored. Scratch locals are drawn from
-     * {@link #nextScratchLocal}.
+     * {@code Object[]}), leaving exactly the original type on the stack. When
+     * both caller and callee are threaded, the returned key slot is XORed into
+     * the caller's live threaded seed local before the value is reconstructed.
+     * Scratch locals are drawn from {@link #nextScratchLocal}.
      */
-    private InsnList unpackReturnValue(final Type returnType) {
+    private InsnList unpackReturnValue(final Type returnType,
+                                       final boolean threadKey,
+                                       final int callerSeedLocal) {
         final InsnList post = new InsnList();
         final int arrayLocal = nextScratchLocal++;
         post.add(new VarInsnNode(Opcodes.ASTORE, arrayLocal));
+        if (threadKey && callerSeedLocal >= 0) {
+            emitReturnedKeyFold(post, returnType, arrayLocal, callerSeedLocal);
+        }
         if (isPrimitive(returnType)) {
             emitPrimitiveUnpack(post, arrayLocal, 0, returnType);
         } else {
@@ -907,6 +944,24 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             emitCheckCast(post, returnType);
         }
         return post;
+    }
+
+    private void emitReturnedKeyFold(final InsnList insns,
+                                     final Type returnType,
+                                     final int arrayLocal,
+                                     final int callerSeedLocal) {
+        insns.add(new VarInsnNode(Opcodes.ILOAD, callerSeedLocal));
+        if (isPrimitive(returnType)) {
+            emitLoadInt(insns, arrayLocal, primitiveByteSize(new Type[]{returnType}), 4);
+        } else {
+            insns.add(new VarInsnNode(Opcodes.ALOAD, arrayLocal));
+            insns.add(new InsnNode(Opcodes.ICONST_1));
+            insns.add(new InsnNode(Opcodes.AALOAD));
+            insns.add(new TypeInsnNode(Opcodes.CHECKCAST, "java/lang/Integer"));
+            insns.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
+        }
+        insns.add(new InsnNode(Opcodes.IXOR));
+        insns.add(new VarInsnNode(Opcodes.ISTORE, callerSeedLocal));
     }
 
     /**
@@ -921,6 +976,14 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
             local += args[i].getSize();
         }
         return local;
+    }
+
+    private boolean hasTrailingIntSeed(final String desc) {
+        if (desc == null) {
+            return false;
+        }
+        final Type[] args = Type.getArgumentTypes(desc);
+        return args.length > 0 && args[args.length - 1].getSort() == Type.INT;
     }
 
     private boolean isValueReturn(final int opcode) {

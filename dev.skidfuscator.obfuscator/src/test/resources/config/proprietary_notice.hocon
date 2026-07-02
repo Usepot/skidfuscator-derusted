@@ -1,0 +1,7 @@
+exclude: []
+
+proprietaryNotice {
+    enabled: true
+    message: "CUSTOM PROPRIETARY NOTICE: cracking this bytecode is cracking proprietary software."
+    exempt: []
+}
