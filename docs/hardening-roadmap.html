@@ -112,7 +112,7 @@
     border: 1px solid var(--line);
     background: var(--surface);
     border-radius: 8px;
-    min-height: 38px;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -121,7 +121,7 @@
     cursor: pointer;
     transition: background .18s var(--ease), border-color .18s var(--ease), transform .18s var(--ease);
   }
-  .icon-button { width: 40px; padding: 0; }
+  .icon-button { width: 44px; padding: 0; }
   .icon-button:hover,
   .copy-button:hover { background: var(--surface-2); border-color: var(--accent); transform: translateY(-1px); }
   .icon {
@@ -134,7 +134,7 @@
     stroke-linejoin: round;
   }
 
-  main { overflow: hidden; }
+  main { overflow: visible; }
   .hero {
     min-height: calc(100vh - 58px);
     display: grid;
@@ -219,6 +219,14 @@
     border-radius: var(--r);
   }
   .lab-panel { padding: 22px; }
+  .lab > *,
+  .change-board > *,
+  .playbook-layout > *,
+  .sim-grid > *,
+  .mesh-layout > *,
+  .config-layout > * {
+    min-width: 0;
+  }
   .lab-heading {
     display: flex;
     align-items: start;
@@ -242,6 +250,7 @@
     max-width: 70ch;
     text-wrap: pretty;
   }
+  .lab-reset { display: none; flex: 0 0 auto; }
   .control-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -285,6 +294,20 @@
     background: oklch(0.25 0.05 154);
   }
   .control input:checked::before { transform: scale(1); }
+  .control:has(input:disabled) {
+    cursor: not-allowed;
+    opacity: .54;
+  }
+  .control-body {
+    display: grid;
+    gap: 4px;
+  }
+  .control-title {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 8px;
+  }
   .control strong {
     display: block;
     color: var(--ink);
@@ -298,6 +321,48 @@
     font-size: .9rem;
     line-height: 1.4;
   }
+  .control .control-body {
+    display: grid;
+    gap: 4px;
+    margin-top: 0;
+  }
+  .control .control-title {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 0;
+  }
+  .control .status {
+    display: inline-flex;
+    flex: 0 0 auto;
+    margin-top: 0;
+    font-size: .68rem;
+    line-height: 1.2;
+  }
+  .status-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin: 12px 0 0;
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg-2);
+    color: var(--text);
+    font: .72rem/1.2 var(--mono);
+    white-space: nowrap;
+  }
+  .status.shipped { color: var(--green); border-color: oklch(0.56 0.11 154); }
+  .status.partial { color: var(--cyan); border-color: oklch(0.56 0.09 210); }
+  .status.proposed { color: var(--amber); border-color: oklch(0.58 0.11 75); }
+  .status.design { color: var(--accent-hi); border-color: var(--accent); }
+  .status.risky { color: var(--red); border-color: oklch(0.54 0.14 28); }
   .readout-panel {
     padding: 0;
     display: flex;
@@ -415,6 +480,37 @@
     background: var(--surface);
     padding: 24px;
   }
+  .detail-title {
+    margin: 0;
+    color: var(--ink);
+    font-size: 1.55rem;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+  .detail-lede {
+    margin: 10px 0 0;
+    color: var(--muted);
+    max-width: 72ch;
+    text-wrap: pretty;
+  }
+  .detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text);
+    background: var(--bg-2);
+    font: .78rem/1.2 var(--mono);
+  }
+  .tag.status { min-height: 28px; }
   .detail-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -441,12 +537,109 @@
     overflow-wrap: anywhere;
   }
 
+  .playbook-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, .82fr) minmax(0, 1.18fr);
+    gap: 20px;
+  }
+  .evidence-list {
+    display: grid;
+    gap: 9px;
+    margin-top: 16px;
+  }
+  .playbook-readout {
+    display: grid;
+    gap: 16px;
+  }
+  .pressure-top {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .pressure-card {
+    min-height: 92px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    padding: 12px;
+    background: var(--bg-2);
+  }
+  .pressure-card b {
+    display: block;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 1.2rem;
+    line-height: 1.15;
+  }
+  .pressure-card span {
+    display: block;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.35;
+    margin-top: 6px;
+  }
+  .mini-meter {
+    height: 8px;
+    margin-top: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--black);
+  }
+  .mini-meter div {
+    height: 100%;
+    width: 50%;
+    background: var(--accent);
+    transition: width .24s var(--ease), background-color .24s var(--ease);
+  }
+  .attack-steps {
+    list-style: none;
+    counter-reset: attack;
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+  }
+  .attack-steps li {
+    counter-increment: attack;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 13px;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r);
+    background: var(--bg-2);
+  }
+  .attack-steps li::before {
+    content: counter(attack);
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: var(--accent-hi);
+    background: var(--accent-soft);
+    font: .84rem/1 var(--mono);
+  }
+  .attack-steps strong {
+    display: block;
+    color: var(--ink);
+    line-height: 1.25;
+  }
+  .attack-steps span {
+    display: block;
+    color: var(--muted);
+    margin-top: 3px;
+    line-height: 1.45;
+  }
+
   .sim-grid {
     display: grid;
     grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
     gap: 20px;
   }
   .tool-surface {
+    min-width: 0;
     border: 1px solid var(--line);
     border-radius: var(--r);
     background: var(--surface);
@@ -475,14 +668,17 @@
     width: 100%;
   }
   select {
-    min-height: 40px;
+    min-height: 44px;
     color: var(--ink);
     background: var(--bg-2);
     border: 1px solid var(--line);
     border-radius: var(--r);
     padding: 0 10px;
   }
-  input[type="range"] { accent-color: var(--accent); }
+  input[type="range"] {
+    min-height: 44px;
+    accent-color: var(--accent);
+  }
   .bars { display: grid; gap: 11px; margin-top: 16px; }
   .bar-row {
     display: grid;
@@ -540,6 +736,7 @@
     display: block;
   }
   .mesh-node { cursor: pointer; }
+  .mesh-node:focus-visible circle { stroke: var(--amber); }
   .mesh-node circle {
     fill: var(--bg-2);
     stroke: var(--line);
@@ -577,7 +774,7 @@
     padding: 4px;
   }
   .segmented button {
-    min-height: 38px;
+    min-height: 44px;
     border: 0;
     border-radius: 6px;
     background: transparent;
@@ -610,8 +807,14 @@
   }
   .small-check strong { display: block; color: var(--ink); line-height: 1.25; }
   .small-check span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.35; margin-top: 2px; }
+  .small-check .status {
+    display: inline-flex;
+    margin: 6px 0 2px;
+    font-size: .68rem;
+  }
   .codebox {
     position: relative;
+    min-width: 0;
   }
   .codebox .copy-button {
     position: absolute;
@@ -620,6 +823,7 @@
     background: oklch(0.20 0.014 var(--h) / .94);
   }
   .codebox pre { padding-top: 56px; min-height: 460px; }
+  pre { max-width: 100%; }
 
   .rollout-grid {
     display: grid;
@@ -666,11 +870,20 @@
     h1 { font-size: 3.55rem; }
     .lab,
     .change-board,
+    .playbook-layout,
     .sim-grid,
     .mesh-layout,
     .config-layout { grid-template-columns: 1fr; }
     .rollout-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .topbar nav { display: none; }
+    .topbar nav {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-x: auto;
+      margin-left: 8px;
+      scrollbar-width: none;
+    }
+    .topbar nav::-webkit-scrollbar { display: none; }
+    .topbar nav a { white-space: nowrap; }
   }
   @media (max-width: 680px) {
     .topbar { padding: 0 14px; }
@@ -682,8 +895,10 @@
     .lab { width: calc(100% - 28px); margin-bottom: 30px; }
     .lab-heading,
     .section-heading { display: block; }
+    .lab-reset { display: inline-flex; margin-top: 14px; }
     .control-grid,
     .readout-top,
+    .pressure-top,
     .detail-grid,
     .field-row,
     .rollout-grid { grid-template-columns: 1fr; }
@@ -711,13 +926,14 @@
     </a>
     <nav aria-label="Page sections">
       <a href="#changes">Changes</a>
+      <a href="#playbook">Playbook</a>
       <a href="#simulator">Simulator</a>
       <a href="#mesh">Tamper mesh</a>
       <a href="#config">Config</a>
       <a href="#rollout">Rollout</a>
     </nav>
     <div class="top-actions">
-      <button class="icon-button" id="resetLab" title="Reset hardening lab" aria-label="Reset hardening lab">
+      <button class="icon-button" id="resetLab" data-reset-lab type="button" title="Reset hardening lab" aria-label="Reset hardening lab">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg>
       </button>
       <a class="copy-button" href="#config">
@@ -747,7 +963,17 @@
           <div class="lab-heading">
             <div>
               <h2>Hardening lab</h2>
-              <p>Toggle the proposed changes and watch the model shift from direct algebra to mixed, contextual key material.</p>
+              <p>Toggle current and target changes to see how the model shifts from direct algebra to mixed, contextual key material.</p>
+              <div class="status-legend" aria-label="Implementation status legend">
+                <span class="status shipped">current</span>
+                <span class="status partial">partial</span>
+                <span class="status proposed">proposed</span>
+                <span class="status design">design</span>
+                <span class="status risky">risky</span>
+              </div>
+              <button class="icon-button lab-reset" data-reset-lab type="button" title="Reset hardening lab" aria-label="Reset hardening lab">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg>
+              </button>
             </div>
           </div>
           <div class="control-grid" id="hardeningControls"></div>
@@ -786,11 +1012,75 @@
             <h2>What changes, and why it matters</h2>
             <p>Each item maps to the actual weakness it addresses: unique seed inversion, recognizable math, reusable decrypt keys, predictable build randomness, legacy hash shapes, visible tamper checks, and linear call graphs.</p>
           </div>
-          <p class="small">Click a change to see the attack it disrupts, the implementation direction, and the source area it touches.</p>
+          <p class="small">Click a change to see its current status, the attack it disrupts, the implementation direction, and the source area it touches.</p>
         </div>
         <div class="change-board">
           <div class="change-list" id="changeList" role="tablist" aria-label="Hardening changes"></div>
           <article class="change-detail" id="changeDetail" tabindex="0"></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="playbook">
+      <div class="section-inner">
+        <div class="section-heading">
+          <div>
+            <h2>Deobfuscator pressure test</h2>
+            <p>Choose what a recovery tool already knows. The readout shows which shortcut still works and which hardening changes turn it into a path-sensitive problem.</p>
+          </div>
+          <p class="small">This is a planning model, not a promise of irreversibility. Protected bytecode still executes locally; the goal is cost, ambiguity, and poor bulk reuse.</p>
+        </div>
+        <div class="playbook-layout">
+          <article class="tool-surface">
+            <h3>Analysis scenario</h3>
+            <p>Compare the baseline against current, partial, and proposed bundles without leaving the static page.</p>
+            <div class="field-row">
+              <div class="field">
+                <label for="attackObjective">Recovery goal</label>
+                <select id="attackObjective">
+                  <option value="seed">Recover flow seed</option>
+                  <option value="strings">Bulk decrypt strings</option>
+                  <option value="numbers">Normalize constants</option>
+                  <option value="tamper">Patch integrity checks</option>
+                  <option value="calls">Rebuild call graph</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="defenseProfile">Countermeasure bundle</label>
+                <select id="defenseProfile">
+                  <option value="legacy">Legacy-style baseline</option>
+                  <option value="compat">Current compatibility hardening</option>
+                  <option value="hardened" selected>Target site-bound hardening</option>
+                  <option value="mesh">Design Tier B structural mesh</option>
+                </select>
+              </div>
+            </div>
+            <div class="evidence-list" id="evidenceChecks" aria-label="Recovered evidence"></div>
+          </article>
+          <article class="tool-surface playbook-readout" aria-live="polite">
+            <div class="pressure-top">
+              <div class="pressure-card">
+                <b id="automationFit">high</b>
+                <span>automation fit</span>
+                <div class="mini-meter" aria-hidden="true"><div id="automationMeter"></div></div>
+              </div>
+              <div class="pressure-card">
+                <b id="reuseValue">high</b>
+                <span>reuse value</span>
+                <div class="mini-meter" aria-hidden="true"><div id="reuseMeter"></div></div>
+              </div>
+              <div class="pressure-card">
+                <b id="traceBurden">low</b>
+                <span>trace burden</span>
+                <div class="mini-meter" aria-hidden="true"><div id="traceMeter"></div></div>
+              </div>
+            </div>
+            <ol class="attack-steps" id="attackSteps"></ol>
+            <div class="fact">
+              <h4 id="pressureTitle">What changed</h4>
+              <p id="pressureNote"></p>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -820,9 +1110,9 @@
                 <label for="encoderMode">Encoder family</label>
                 <select id="encoderMode">
                   <option value="xor">XOR only</option>
-                  <option value="arx">ARX expression pool</option>
-                  <option value="feistel">Small Feistel network</option>
-                  <option value="kdf">Site-bound KDF</option>
+                  <option value="arx">Proposed ARX pool</option>
+                  <option value="feistel">Proposed Feistel network</option>
+                  <option value="kdf">Target site-bound KDF</option>
                 </select>
               </div>
             </div>
@@ -847,7 +1137,7 @@
         <div class="section-heading">
           <div>
             <h2>Tamper mesh behavior</h2>
-            <p>Tier A detects common static patching, but its DAG shape leaves a structural source. Tier B moves expected constants out of the hashed region so checks can form cycles.</p>
+            <p>Current Tier A detects common static patching, but its DAG shape leaves a structural source. Design-only Tier B moves expected constants out of the hashed region so checks can form cycles.</p>
           </div>
         </div>
         <div class="mesh-layout">
@@ -858,8 +1148,8 @@
             <h3>Patch a class</h3>
             <p>Select a mesh tier and a class to patch. Highlighted edges show which checker trips.</p>
             <div class="segmented" role="group" aria-label="Tamper tier">
-              <button id="tierA" class="active" type="button">Tier A DAG</button>
-              <button id="tierB" type="button">Tier B cyclic</button>
+              <button id="tierA" class="active" type="button" aria-pressed="true">Tier A DAG</button>
+              <button id="tierB" type="button" aria-pressed="false">Tier B design</button>
             </div>
             <div class="field">
               <label for="patchedClass">Patched class</label>
@@ -898,7 +1188,7 @@
           <article class="codebox">
             <button class="copy-button" id="copyConfig" type="button">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              Copy
+              <span id="copyConfigLabel">Copy</span>
             </button>
             <pre id="configOutput"></pre>
           </article>
@@ -952,16 +1242,28 @@
 "use strict";
 
 const hardeningControls = [
-  ["wide", "Wide 64-bit seed", "Threads a long through the flow local instead of relying on the low 32 bits."],
-  ["compress", "Compressed guard", "Folds 64 bits to a lossy 32-bit guard so one constant has many seed preimages."],
-  ["salt", "Salted fold", "Uses a high-word keyed multiply fold to reduce cross-guard correlation."],
-  ["mixed", "Mixed encoders", "Replaces the recognizable XOR-only equation with polymorphic int and long expressions."],
-  ["kdf", "Site-bound KDF", "Derives decrypt keys from seed plus class, method, block, literal index, and salt."],
-  ["drbg", "Build DRBG", "Uses build-scoped secure entropy and labeled derivation instead of one global Random stream."],
-  ["hash", "Hasher unification", "Moves legacy switch/range seed loaders onto the rotating VM/polymorphic hash path."],
-  ["tamper", "Tamper-coupled keys", "Feeds integrity checks into flow or decrypt key material instead of only throwing."],
-  ["struct", "Structural passes", "Adds signature carriers, method dispatch, method merge, and invokedynamic where tests allow."]
+  ["wide", "Wide 64-bit seed", "Threads a long through the flow local instead of relying on the low 32 bits.", "current"],
+  ["compress", "Compressed guard", "Folds 64 bits to a lossy 32-bit guard so one constant has many seed preimages.", "current"],
+  ["salt", "Salted fold", "Uses a high-word keyed multiply fold to reduce cross-guard correlation.", "current"],
+  ["mixed", "Mixed encoders", "Current number paths are still XOR-shaped; this models target ARX/Feistel families.", "proposed"],
+  ["kdf", "Site-bound KDF", "Target derivation from seed plus class, method, block, literal index, salt, and optional tamper digest.", "proposed"],
+  ["drbg", "Build DRBG", "Target build-scoped secure entropy and labeled derivation instead of one global Random stream.", "proposed"],
+  ["hash", "Hasher unification", "Partial: route legacy switch/range seed loaders onto the rotating VM/polymorphic hash path.", "partial"],
+  ["tamper", "Tamper-coupled keys", "Design-only: feed integrity digests into flow or decrypt key material instead of only throwing.", "design"],
+  ["struct", "Structural passes", "Risky shipped/proposed mix: signature carriers, method dispatch, method merge, and invokedynamic where tests allow.", "risky"]
 ];
+
+const statusClassMap = {
+  current: "shipped",
+  partial: "partial",
+  proposed: "proposed",
+  design: "design",
+  risky: "risky"
+};
+
+function statusBadge(status) {
+  return `<span class="status ${statusClassMap[status] || ""}">${status}</span>`;
+}
 
 const defaultState = {
   wide: true,
@@ -980,92 +1282,159 @@ const changes = [
     id: "wide",
     label: "Wide seed + compressed guards",
     short: "Stop one guard from revealing one seed.",
+    status: "current",
+    tags: ["seed cracking", "compatibility"],
+    attack: "A deobfuscator extracts a guard constant, inverts the 32-bit predicate, then reuses that seed to simplify branches and decrypt nearby constants.",
     why: "The old guard model lets a constant line up with a single 32-bit predicate. Wide seed plus non-injective folding means a guard constant gives a cloud of candidates, not the answer.",
     changes: "Keep the legacy int projection for old consumers, but store and thread a 64-bit flow value for guards, strings, and call-site seed material.",
     impact: "Seed-cracking moves from direct inversion to path tracing. Automated tools must recover the live high word and the edge history, not just solve one expression.",
+    verification: "Fixture jars should prove that a single guard constant has multiple valid preimages and that old int-only consumers still receive the projected value they expect.",
+    risk: "Medium: every consumer that assumes an int seed needs a compatibility projection and verifier coverage.",
     path: "DefaultSkidConfig.java, BasicConditionTransformer.java, IntegerBlockPredicateRenderer.java"
+  },
+  {
+    id: "carrier",
+    label: "Split seed carriers",
+    short: "Make the useful seed value path-sensitive.",
+    status: "proposed",
+    tags: ["seed cracking", "control flow"],
+    attack: "A tool names the seed local, tracks a straight-line def-use chain, and treats every predicate in the method as sharing the same recovered value.",
+    why: "A wider seed is still weak if the full value sits in one obvious local. Splitting the carrier makes the analyzer reconstruct merge points and edge history before the seed is useful.",
+    changes: "Thread low bits, high bits, fold salt, and block-local context through different locals or stack shapes, then recombine only at guarded use sites.",
+    impact: "Seed recovery becomes path-sensitive. A deobfuscator must model SSA merges and opaque branch history instead of lifting one local.",
+    verification: "Add fixture methods with joins, loops, and exception edges, then assert the protected jar still runs while a seed-only extractor no longer gets a reusable full seed.",
+    risk: "Medium to high: liveness, max stack, and verifier-sensitive frames need targeted bytecode tests.",
+    path: "BasicConditionTransformer.java, IntegerBlockOpaquePredicate.java, IntegerBlockPredicateRenderer.java"
   },
   {
     id: "mixed",
     label: "Polymorphic number encoders",
     short: "Retire the K xor seed recognizer.",
+    status: "proposed",
+    tags: ["constant deobf", "algebra"],
+    attack: "A recognizer searches for K xor seed patterns, folds the expression, then bulk-normalizes protected ints and longs.",
     why: "NumberManager currently routes most constants through XOR. That is easy to fingerprint and easy to simplify once the seed is known.",
     changes: "Add int and long encoder families: ARX chains, rotate/multiply/xor templates, small Feistel rounds, and per-site expression pools.",
     impact: "A deobfuscator cannot rely on one algebraic rewrite. It has to normalize several shapes and prove equivalence site by site.",
+    verification: "Generate constants through every encoder family, execute the output, and run a negative fixture that proves the old XOR-only recognizer misses the mixed profile.",
+    risk: "Medium: expression size and runtime cost must be capped so small methods do not balloon.",
     path: "NumberManager.java, XorNumberTransformer.java, RandomShiftNumberTransformer.java"
   },
   {
     id: "kdf",
     label: "Site-bound decrypt keys",
     short: "Make a recovered seed less reusable.",
+    status: "proposed",
+    tags: ["string deobf", "key reuse"],
+    attack: "After one trace reveals a seed or decrypt key, a bulk extractor replays the same material across strings, invokedynamic names, annotations, or constants.",
     why: "If string and invokedynamic names key directly from the live seed, tracing one block leaks too much value.",
-    changes: "Derive keys with seed64, class id, method id, block id, literal index, salt, and optional tamper digest.",
+    changes: "Target state: derive keys with seed64, class id, method id, block id, literal index, salt, and optional tamper digest. Current wide string paths are still closer to seed-keyed decryptors than full site-bound KDF.",
     impact: "One recovered key unlocks one site. Bulk literal extraction now needs control-flow context and site metadata.",
+    verification: "Use paired literals with the same plaintext and nearby control flow, then assert their derived keys differ and a recovered key from one site cannot decrypt the other.",
+    risk: "Medium: deterministic builds need an explicit secret seed story, and runtime decryptors must stay small enough for hot paths.",
     path: "AbstractEncryptionGeneratorV3.java, Base64PaddedV3EncryptionGenerator.java, InvokeDynamicMethodTransformer.java"
   },
   {
     id: "drbg",
     label: "Secure build entropy",
     short: "Remove global Random predictability.",
+    status: "proposed",
+    tags: ["build variance", "diffing"],
+    attack: "An analyst compares two protected builds and follows global Random sequencing to correlate pads, names, predicates, and helper shapes.",
     why: "A single java.util.Random stream is convenient, but it makes output families easier to diff and can leak sequencing patterns across names, pads, and predicates.",
-    changes: "Create a build seed from SecureRandom, then derive labeled per-class, method, block, literal, and transformer values.",
+    changes: "Target state: create a build seed from SecureRandom, then derive labeled per-class, method, block, literal, and transformer values. Current output still depends on global RandomUtil call order.",
     impact: "Builds stay diverse without relying on global call order. Optional reproducible builds can use an explicit secret seed.",
+    verification: "Protect the same input twice, confirm labeled values diverge by default, then repeat with an explicit secret seed and confirm the output is reproducible.",
+    risk: "Low to medium: mostly policy and reproducibility, but transformer call-order assumptions need cleanup.",
     path: "RandomUtil.java, IntegerMethodOpaquePredicate.java, IntegerBlockOpaquePredicate.java"
   },
   {
     id: "hash",
     label: "Hasher unification",
     short: "Remove the legacy hash island.",
+    status: "partial",
+    tags: ["fingerprints", "seed loaders"],
+    attack: "A deobfuscator recognizes the legacy generated hasher in switch/range paths, lifts that helper, and applies the same inverse across seeded branches.",
     why: "Some switch and range paths still use the legacy generated hasher while condition hashing uses the VM/pinned path.",
     changes: "Route randomHasher and seed-loader hash calls through the same rotating polymorphic hasher pool, with wide folding where applicable.",
     impact: "The output has fewer stable fingerprints. Reversing one helper stops teaching the analyst every seeded branch.",
+    verification: "Build fixtures for switch, range, and basic condition paths, then assert they no longer emit a separate legacy hash family when the hardened profile is enabled.",
+    risk: "Medium: switch/range correctness and collision behavior need focused fixtures.",
     path: "NumberManager.java, SwitchSeedLoaderRenderer.java, VmHashTransformer.java"
   },
   {
     id: "tamper",
     label: "Tamper mesh Tier B",
     short: "Move from detection to corrupted context.",
-    why: "Tier A whole-file checks are useful, but the check call is visible and a DAG always has a source nobody checks.",
+    status: "design",
+    tags: ["patching", "runtime coupling"],
+    attack: "A patcher deletes visible verification calls or edits a protected class while leaving a DAG source class untouched.",
+    why: "Current Tier A whole-file checks are useful, but the check call is visible and a DAG always has a source nobody checks.",
     changes: "Hash designated method Code regions, store expected constants outside hashed regions, allow cycles, then mix tamper result into seed or KDF material.",
     impact: "Patchers must understand the mesh and preserve behavior, not just delete a visible verification call.",
+    verification: "Patch each fixture class one at a time and assert the app either reports tamper or silently derives wrong downstream context according to the selected action.",
+    risk: "High: expected constants, cycle construction, and runtime error behavior need integration tests on real applications.",
     path: "TAMPER_PROTECTION_DESIGN.md, TamperJarDumper.java, sdk/Tamper.java"
   },
   {
     id: "struct",
     label: "Structural hardening passes",
     short: "Make call graphs and signatures lie.",
+    status: "risky",
+    tags: ["call graph", "metadata"],
+    attack: "A static tool recovers meaningful method boundaries, descriptors, and direct call edges after constants and strings are handled.",
     why: "Even strong constant protection leaves readable method boundaries if calls and descriptors stay ordinary.",
     changes: "Use signature carriers, method dispatch, method merge, and invokedynamic callsites on test-backed releases.",
     impact: "Static call graph recovery becomes probabilistic and path-sensitive. The cost shifts from naming symbols to reconstructing dispatch semantics.",
+    verification: "Run verifier-heavy fixtures, reflection-sensitive examples, and stack-map tests before enabling these passes in a broad profile.",
+    risk: "High: descriptors, reflection, bridge methods, and verifier frames can break legitimate code if applied too broadly.",
     path: "SignatureObfuscationTransformer.java, MethodDispatchTransformer.java, MethodMergeTransformer.java"
+  },
+  {
+    id: "regression",
+    label: "Deobfuscation regression fixtures",
+    short: "Test the shortcuts, not just the runtime.",
+    status: "proposed",
+    tags: ["verification", "release gate"],
+    attack: "A hardening change ships because the protected jar runs, while the same seed extractor or string scraper still succeeds on the emitted bytecode.",
+    why: "Hardening work is only meaningful if the old recovery scripts stop being reusable. Runtime smoke tests prove compatibility, not resistance.",
+    changes: "Keep fixture jars for seed inversion, XOR recognizers, string extraction, tamper deletion, and call-graph recovery, then run them as negative tests for hardened profiles.",
+    impact: "The release gate catches regressions where bytecode still has the same stable deobfuscation signature even though the feature name changed.",
+    verification: "Store the expected failure mode for each deobfuscation shortcut and update it deliberately when the threat model changes.",
+    risk: "Low: this is mostly test plumbing, but fixtures must stay small and legally clean.",
+    path: "dev.skidfuscator.obfuscator/src/test, docs/hardening-roadmap.html, future deobf fixtures"
   }
 ];
 
 const profileOptions = [
-  ["safe", "Core hardened profile", "Wide seed, guard compression, salted fold, SDK, silent tamper.", true],
-  ["strings", "Site-bound strings", "KDF-derived string and annotation keys once implemented.", true],
-  ["numbers", "Polymorphic number encoders", "Route int and long constants through mixed encoder families.", true],
-  ["hashers", "Unified hashers", "Retire legacy hasher use in switch/range seed loading.", true],
-  ["structural", "Risky structural passes", "Signature obfuscation, dispatch, merge, invokedynamic.", false],
-  ["decoys", "Exception decoy calls", "Extra valid decoy calls in fake failure paths.", false]
+  ["safe", "Core hardened profile", "Wide seed, guard compression, salted fold, SDK, silent tamper.", true, "current"],
+  ["strings", "Target site-bound strings", "Current encryption stays enabled; full KDF derivation is a proposed future key path.", true, "proposed"],
+  ["numbers", "Target polymorphic number encoders", "Current constants are still XOR-shaped; ARX/Feistel pools are proposed.", true, "proposed"],
+  ["hashers", "Partial unified hashers", "Retire legacy hasher use in switch/range seed loading.", true, "partial"],
+  ["structural", "Risky structural passes", "Signature obfuscation, dispatch, merge, invokedynamic.", false, "risky"],
+  ["decoys", "Exception decoy calls", "Extra valid decoy calls in fake failure paths.", false, "current"]
 ];
 
 const controlRoot = document.getElementById("hardeningControls");
-for (const [key, title, text] of hardeningControls) {
+for (const [key, title, text, status] of hardeningControls) {
   const label = document.createElement("label");
   label.className = "control";
-  label.innerHTML = `<input type="checkbox" data-hardening="${key}"><span><strong>${title}</strong><span>${text}</span></span>`;
+  label.innerHTML = `<input type="checkbox" data-hardening="${key}"><span class="control-body"><span class="control-title"><strong>${title}</strong>${statusBadge(status)}</span><span>${text}</span></span>`;
   const input = label.querySelector("input");
   input.checked = Boolean(defaultState[key]);
   input.addEventListener("change", updateLab);
   controlRoot.append(label);
 }
 
-document.getElementById("resetLab").addEventListener("click", () => {
+function resetLab() {
   document.querySelectorAll("[data-hardening]").forEach(input => {
     input.checked = Boolean(defaultState[input.dataset.hardening]);
   });
   updateLab();
+}
+
+document.querySelectorAll("[data-reset-lab]").forEach(button => {
+  button.addEventListener("click", resetLab);
 });
 
 function getHardeningState() {
@@ -1073,18 +1442,25 @@ function getHardeningState() {
   document.querySelectorAll("[data-hardening]").forEach(input => {
     state[input.dataset.hardening] = input.checked;
   });
-  if (!state.wide) {
-    state.compress = false;
-    state.salt = false;
-  }
-  if (!state.compress) state.salt = false;
   return state;
 }
 
+function syncHardeningDependencies() {
+  const wide = document.querySelector('[data-hardening="wide"]');
+  const compress = document.querySelector('[data-hardening="compress"]');
+  const salt = document.querySelector('[data-hardening="salt"]');
+  if (!wide.checked) {
+    compress.checked = false;
+    salt.checked = false;
+  }
+  if (!compress.checked) salt.checked = false;
+  compress.disabled = !wide.checked;
+  salt.disabled = !wide.checked || !compress.checked;
+}
+
 function updateLab() {
+  syncHardeningDependencies();
   const state = getHardeningState();
-  document.querySelector('[data-hardening="compress"]').disabled = !state.wide;
-  document.querySelector('[data-hardening="salt"]').disabled = !state.compress;
   const bits = state.wide ? 64 : 32;
   const preimages = state.compress ? "2^32" : "1";
   const reuse = state.kdf ? (state.tamper ? "low" : "site") : "high";
@@ -1103,8 +1479,16 @@ function updateLab() {
   document.getElementById("metricPreimages").textContent = preimages;
   document.getElementById("metricReuse").textContent = reuse;
   document.getElementById("hardeningMeter").style.width = `${score}%`;
+  const seedName = state.wide ? "seed64" : "seed32";
+  const foldExpr = state.wide
+    ? state.salt
+      ? "(low ^ high) * (high | 1)"
+      : state.compress
+        ? "low ^ high"
+        : "(int) seed64"
+    : "seed32";
   const equation = state.kdf
-    ? `seed64 = flow.long\nfold   = ${state.salt ? "(low ^ high) * (high | 1)" : state.compress ? "low ^ high" : "(int) seed64"}\nkey    = KDF(seed64, class, method, block, literal, salt${state.tamper ? ", tamperDigest" : ""})\nvalue  = ${state.mixed ? "decode_arx_or_feistel(cipher, key)" : "cipher ^ key"}`
+    ? `${seedName} = ${state.wide ? "flow.long" : "flow.int"}\nfold   = ${foldExpr}\nkey    = KDF(${seedName}, class, method, block, literal, salt${state.tamper ? ", tamperDigest" : ""})\nvalue  = ${state.mixed ? "decode_arx_or_feistel(cipher, key)" : "cipher ^ key"}`
     : `seed  = ${state.wide ? "flow.long" : "flow.int"}\nvalue = (constant ^ seed) ^ runtimeSeed\nguard = hash(${state.compress ? "fold(seed64)" : "seed"})`;
   document.getElementById("equationBox").textContent = equation;
   const note = score >= 80
@@ -1122,8 +1506,19 @@ changes.forEach((item, index) => {
   button.className = "change-tab";
   button.setAttribute("role", "tab");
   button.setAttribute("aria-selected", index === 0 ? "true" : "false");
+  button.setAttribute("aria-controls", "changeDetail");
+  button.id = `changeTab${index}`;
   button.innerHTML = `<i>${index + 1}</i><span><strong>${item.label}</strong><span>${item.short}</span></span>`;
   button.addEventListener("click", () => selectChange(index));
+  button.addEventListener("keydown", event => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const next = event.key === "ArrowDown"
+      ? (index + 1) % changes.length
+      : (index - 1 + changes.length) % changes.length;
+    selectChange(next);
+    document.getElementById(`changeTab${next}`).focus();
+  });
   changeList.append(button);
 });
 
@@ -1133,17 +1528,243 @@ function selectChange(index) {
     tab.setAttribute("aria-selected", i === index ? "true" : "false");
   });
   document.getElementById("changeDetail").innerHTML = `
-    <h3 style="margin:0;color:var(--ink);font-size:1.55rem;line-height:1.15">${item.label}</h3>
-    <p style="margin:10px 0 0;color:var(--muted);max-width:72ch">${item.short}</p>
+    <h3 class="detail-title">${item.label}</h3>
+    <p class="detail-lede">${item.short}</p>
+    <div class="detail-meta">${statusBadge(item.status)}${item.tags.map(tag => `<span class="tag">${tag}</span>`).join("")}</div>
     <div class="detail-grid">
+      <div class="fact"><h4>Current shortcut</h4><p>${item.attack}</p></div>
       <div class="fact"><h4>Why</h4><p>${item.why}</p></div>
       <div class="fact"><h4>What changes</h4><p>${item.changes}</p></div>
       <div class="fact"><h4>What it breaks for deobf</h4><p>${item.impact}</p></div>
-      <div class="fact"><h4>Rollout risk</h4><p>${item.id === "struct" || item.id === "tamper" ? "High: test against real apps and verifier-sensitive bytecode." : item.id === "drbg" ? "Low to medium: mostly output diversity and reproducibility policy." : "Medium: bytecode verification and runtime fixtures needed."}</p></div>
+      <div class="fact"><h4>How to prove it</h4><p>${item.verification}</p></div>
+      <div class="fact"><h4>Rollout risk</h4><p>${item.risk}</p></div>
     </div>
     <span class="source-path">${item.path}</span>
   `;
 }
+
+const evidenceOptions = [
+  ["guard", "Guard constant extracted", "The tool can read one predicate constant from bytecode.", true],
+  ["seed32", "One 32-bit seed recovered", "A trace or simplifier produced the low-word seed for one block.", false],
+  ["literal", "One literal decrypted", "One string, number, or invokedynamic name is known in plaintext.", false],
+  ["trace", "One live path traced", "The analyst can observe one normal execution path at runtime.", false],
+  ["tamperCall", "Tamper check located", "A visible integrity call or helper has been found.", false]
+];
+
+const profileDefs = {
+  legacy: {
+    label: "Legacy-style baseline",
+    wide: false,
+    compress: false,
+    salt: false,
+    mixed: false,
+    kdf: false,
+    drbg: false,
+    hash: false,
+    tamper: false,
+    struct: false
+  },
+  compat: {
+    label: "Current compatibility hardening",
+    wide: true,
+    compress: true,
+    salt: true,
+    mixed: false,
+    kdf: false,
+    drbg: false,
+    hash: false,
+    tamper: false,
+    struct: false
+  },
+  hardened: {
+    label: "Target site-bound hardening",
+    wide: true,
+    compress: true,
+    salt: true,
+    mixed: true,
+    kdf: true,
+    drbg: true,
+    hash: true,
+    tamper: false,
+    struct: false
+  },
+  mesh: {
+    label: "Design Tier B structural mesh",
+    wide: true,
+    compress: true,
+    salt: true,
+    mixed: true,
+    kdf: true,
+    drbg: true,
+    hash: true,
+    tamper: true,
+    struct: true
+  }
+};
+
+const objectiveDefs = {
+  seed: {
+    legacy: "Read a guard constant, solve the 32-bit predicate equation, and reuse the recovered seed through the method.",
+    target: "The seed is no longer the answer by itself; the useful value depends on high bits, fold salt, and the guarded path.",
+    next: "recover the live high word and prove which path-specific fold produced this guard"
+  },
+  strings: {
+    legacy: "Recover a seed or decrypt key once, then replay the decryptor over every literal that shares the same shape.",
+    target: "String and invokedynamic material should derive from seed64 plus owner, method, block, literal index, salt, and optional tamper state.",
+    next: "reconstruct each literal site and its control-flow context before attempting bulk decrypt"
+  },
+  numbers: {
+    legacy: "Find the XOR recognizer, fold K xor seed, and normalize constants with one algebraic rewrite.",
+    target: "Constants move through mixed ARX, rotate/multiply/xor, Feistel, or KDF-derived shapes instead of one recognizer.",
+    next: "classify encoder families and prove equivalence per site instead of applying a global simplifier"
+  },
+  tamper: {
+    legacy: "Delete or bypass a visible verification call, then keep running with the same seed and decrypt keys.",
+    target: "Tamper results can feed seed or KDF material, so removing a check corrupts later context instead of only skipping a throw.",
+    next: "preserve the check mesh behavior or emulate the digest material expected by downstream decryptors"
+  },
+  calls: {
+    legacy: "After constants are simplified, read ordinary descriptors and direct call edges to rebuild the call graph.",
+    target: "Signature carriers, dispatch, merge, and invokedynamic make edges and descriptors less literal.",
+    next: "execute or emulate dispatch semantics before assigning stable method identities"
+  }
+};
+
+const evidenceRoot = document.getElementById("evidenceChecks");
+for (const [key, title, text, checked] of evidenceOptions) {
+  const label = document.createElement("label");
+  label.className = "small-check";
+  label.innerHTML = `<input type="checkbox" data-evidence="${key}" ${checked ? "checked" : ""}><span><strong>${title}</strong><span>${text}</span></span>`;
+  label.querySelector("input").addEventListener("change", updatePlaybook);
+  evidenceRoot.append(label);
+}
+
+function pressureLevel(value) {
+  if (value >= 68) return "high";
+  if (value >= 38) return "medium";
+  return "low";
+}
+
+function clampPressure(value) {
+  return Math.max(6, Math.min(96, Math.round(value)));
+}
+
+function setPressureMetric(textId, meterId, value, highIsGood) {
+  const label = pressureLevel(value);
+  const meter = document.getElementById(meterId);
+  document.getElementById(textId).textContent = label;
+  meter.style.width = `${value}%`;
+  const strong = highIsGood ? value >= 68 : value < 38;
+  const weak = highIsGood ? value < 38 : value >= 68;
+  meter.style.background = strong ? "var(--green)" : weak ? "var(--red)" : "var(--amber)";
+}
+
+function getEvidenceState() {
+  const evidence = new Set();
+  document.querySelectorAll("[data-evidence]").forEach(input => {
+    if (input.checked) evidence.add(input.dataset.evidence);
+  });
+  return evidence;
+}
+
+function updatePlaybook() {
+  const objective = document.getElementById("attackObjective").value;
+  const profileKey = document.getElementById("defenseProfile").value;
+  const profile = profileDefs[profileKey];
+  const evidence = getEvidenceState();
+  const objectiveCopy = objectiveDefs[objective];
+
+  let automation = 86;
+  let reuse = 82;
+  let trace = 16;
+
+  if (profile.wide) { automation -= 12; trace += 14; }
+  if (profile.compress) { automation -= 15; reuse -= 8; trace += 17; }
+  if (profile.salt) { automation -= 6; trace += 5; }
+  if (profile.mixed) { automation -= objective === "numbers" ? 22 : 9; trace += 8; }
+  if (profile.kdf) { automation -= objective === "strings" ? 20 : 9; reuse -= 28; trace += 19; }
+  if (profile.drbg) { reuse -= 8; }
+  if (profile.hash) { automation -= objective === "seed" ? 10 : 6; }
+  if (profile.tamper) { automation -= objective === "tamper" ? 18 : 8; reuse -= 12; trace += 13; }
+  if (profile.struct) { automation -= objective === "calls" ? 22 : 8; trace += 13; }
+
+  if (evidence.has("guard")) automation += profile.compress ? 4 : 15;
+  if (evidence.has("seed32")) {
+    automation += profile.wide ? 6 : 20;
+    reuse += profile.kdf ? 3 : 18;
+    trace -= 5;
+  }
+  if (evidence.has("literal")) reuse += profile.kdf ? 4 : 16;
+  if (evidence.has("trace")) {
+    automation += 8;
+    trace -= 12;
+  }
+  if (evidence.has("tamperCall")) automation += profile.tamper ? 3 : 14;
+
+  automation = clampPressure(automation);
+  reuse = clampPressure(reuse);
+  trace = clampPressure(trace);
+
+  setPressureMetric("automationFit", "automationMeter", automation, false);
+  setPressureMetric("reuseValue", "reuseMeter", reuse, false);
+  setPressureMetric("traceBurden", "traceMeter", trace, true);
+
+  const steps = [
+    ["Baseline shortcut", objectiveCopy.legacy],
+    ["Selected bundle", `${profile.label}: ${objectiveCopy.target}`]
+  ];
+
+  if (profile.wide && profile.compress) {
+    steps.push(["Seed ambiguity", "A guard constant now describes a folded projection, so a recovered low word is not enough to rebuild the live seed."]);
+  } else {
+    steps.push(["Seed shape", "The emitted shape still leaves a direct seed relation that a recognizer can lift with little path context."]);
+  }
+
+  if (objective === "strings" || profile.kdf) {
+    steps.push(profile.kdf
+      ? ["Key locality", "KDF inputs bind decrypt keys to class, method, block, literal index, salt, and optional tamper material."]
+      : ["Key reuse", "Without site-bound derivation, one recovered seed or decrypt key can still unlock too many literals."]);
+  }
+
+  if (objective === "numbers" || profile.mixed) {
+    steps.push(profile.mixed
+      ? ["Encoder diversity", "Mixed encoder families force site-by-site normalization instead of a single XOR rewrite."]
+      : ["Recognizer weakness", "The XOR-only path remains the easiest bulk constant-recovery target."]);
+  }
+
+  if (objective === "tamper" || profile.tamper) {
+    steps.push(profile.tamper
+      ? ["Tamper coupling", "Deleting a check can poison later seed or KDF material, so bypassing visible control flow is no longer sufficient."]
+      : ["Visible bypass", "Detection-only checks still risk becoming removable calls unless their result affects later context."]);
+  }
+
+  if (objective === "calls" || profile.struct) {
+    steps.push(profile.struct
+      ? ["Structural ambiguity", "Dispatch, merge, invokedynamic, and signature carriers make call recovery depend on runtime semantics."]
+      : ["Readable topology", "Ordinary descriptors and direct call edges remain useful once constants and strings are normalized."]);
+  }
+
+  const evidenceText = evidence.size
+    ? Array.from(evidence).map(key => evidenceOptions.find(([id]) => id === key)[1]).join("; ")
+    : "No recovered evidence selected.";
+  steps.push(["Known evidence", evidenceText]);
+  steps.push(["Next bottleneck", `The analyst now has to ${objectiveCopy.next}.`]);
+
+  document.getElementById("attackSteps").innerHTML = steps
+    .map(([title, text]) => `<li><span><strong>${title}</strong><span>${text}</span></span></li>`)
+    .join("");
+
+  const summary = automation < 38 && reuse < 38
+    ? "This bundle is doing the right defensive work: it does not make deobfuscation impossible, but it blocks one-shot extraction and makes recovered material local to a path or site."
+    : automation < 55 || reuse < 55
+      ? "The selected changes remove the easiest shortcut, but the remaining evidence still has enough structure to justify targeted regression fixtures."
+      : "This still behaves like a reusable deobfuscation target. Add seed ambiguity, mixed encoders, site-bound keys, or tamper coupling before calling it hardened.";
+  document.getElementById("pressureTitle").textContent = `Pressure result: ${profile.label}`;
+  document.getElementById("pressureNote").textContent = summary;
+}
+
+document.getElementById("attackObjective").addEventListener("change", updatePlaybook);
+document.getElementById("defenseProfile").addEventListener("change", updatePlaybook);
 
 const barsRoot = document.getElementById("simBars");
 const simMetrics = [
@@ -1178,11 +1799,12 @@ function updateSimulator() {
     fill.style.background = key === "runtime" ? "var(--amber)" : value > 70 ? "var(--green)" : value > 45 ? "var(--amber)" : "var(--red)";
     document.querySelector(`[data-bar-value="${key}"]`).textContent = `${value}`;
   }
+  const selectedSeedName = seed === "int" ? "seed32" : "seed64";
   const code = {
     xor: `// recognizable shape\nencoded = (plain ^ seed) ^ runtimeSeed;\nseed = ${seed === "int" ? "flow.int" : "flow.long"};`,
     arx: `// per-site arithmetic/rotate/xor template\nx = runtimeSeed + siteSalt;\nx = rotl(x ^ c1, r1) * oddMul;\nencoded = plain ^ (x + c2);`,
     feistel: `// small reversible network\nL, R = split(runtimeSeed ^ siteSalt);\nrepeat rounds:\n  L, R = R, L ^ F(R, roundKey);\nencoded = plain ^ join(L, R);`,
-    kdf: `// site-bound key material\nkey = KDF(seed64, owner, name, desc, blockId, literalIndex, salt);\nencoded = stream_xor(cipher, key);\n// recovered seed alone is not the key`
+    kdf: `// target site-bound key material\nkey = KDF(${selectedSeedName}, owner, name, desc, blockId, literalIndex, salt);\nencoded = stream_xor(cipher, key);\n// recovered seed alone is not the key`
   }[enc];
   document.getElementById("simCode").textContent = `${code}\n\nconstantsInMethod = ${count};\nseedMode = "${seed}";`;
   const chips = [];
@@ -1226,13 +1848,19 @@ function renderMesh() {
     const cls = ["mesh-node"];
     if (name === patched) cls.push("patched");
     if (checking.includes(name)) cls.push("checked");
-    return `<g class="${cls.join(" ")}" data-node="${name}" transform="translate(${x} ${y})"><circle r="35"/><text>${name}</text></g>`;
+    return `<g class="${cls.join(" ")}" data-node="${name}" role="button" tabindex="0" aria-label="Patch ${name}" transform="translate(${x} ${y})"><circle r="35"/><text>${name}</text></g>`;
   }).join("");
   svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="oklch(0.82 0.15 75)"/></marker></defs>${edgeMarkup}${nodeMarkup}`;
+  const selectNode = node => {
+    document.getElementById("patchedClass").value = node.dataset.node;
+    renderMesh();
+  };
   svg.querySelectorAll(".mesh-node").forEach(node => {
-    node.addEventListener("click", () => {
-      document.getElementById("patchedClass").value = node.dataset.node;
-      renderMesh();
+    node.addEventListener("click", () => selectNode(node));
+    node.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectNode(node);
     });
   });
   const uncovered = meshTier === "A" && checking.length === 0;
@@ -1242,25 +1870,24 @@ function renderMesh() {
     : `${patched} is checked by ${checking.join(", ")}. A patch changes the target bytes, so the highlighted checker compares against stale expected material.`;
 }
 
-document.getElementById("tierA").addEventListener("click", () => {
-  meshTier = "A";
-  document.getElementById("tierA").classList.add("active");
-  document.getElementById("tierB").classList.remove("active");
+function setMeshTier(tier) {
+  meshTier = tier;
+  document.getElementById("tierA").classList.toggle("active", tier === "A");
+  document.getElementById("tierB").classList.toggle("active", tier === "B");
+  document.getElementById("tierA").setAttribute("aria-pressed", tier === "A" ? "true" : "false");
+  document.getElementById("tierB").setAttribute("aria-pressed", tier === "B" ? "true" : "false");
   renderMesh();
-});
-document.getElementById("tierB").addEventListener("click", () => {
-  meshTier = "B";
-  document.getElementById("tierB").classList.add("active");
-  document.getElementById("tierA").classList.remove("active");
-  renderMesh();
-});
+}
+
+document.getElementById("tierA").addEventListener("click", () => setMeshTier("A"));
+document.getElementById("tierB").addEventListener("click", () => setMeshTier("B"));
 document.getElementById("patchedClass").addEventListener("change", renderMesh);
 
 const profileRoot = document.getElementById("profileChecks");
-for (const [key, title, text, checked] of profileOptions) {
+for (const [key, title, text, checked, status] of profileOptions) {
   const label = document.createElement("label");
   label.className = "small-check";
-  label.innerHTML = `<input type="checkbox" data-profile="${key}" ${checked ? "checked" : ""}><span><strong>${title}</strong><span>${text}</span></span>`;
+  label.innerHTML = `<input type="checkbox" data-profile="${key}" ${checked ? "checked" : ""}><span><strong>${title}</strong>${statusBadge(status)}<span>${text}</span></span>`;
   label.querySelector("input").addEventListener("change", updateConfig);
   profileRoot.append(label);
 }
@@ -1276,13 +1903,13 @@ function updateConfig() {
     parts.push(`seed { wide = true }\n\nflowCondition {\n  enabled = true\n  compressing {\n    enabled = true\n    salt = true\n  }\n}\n\nsdk { enabled = true }\n\ntamperProtection {\n  enabled = true\n  action = SILENT\n}`);
   }
   if (profileEnabled("strings")) {
-    parts.push(`stringEncryption {\n  enabled = true\n  type = STANDARD\n  # future: keyDerivation = SITE_BOUND\n}\n\nstringAnnotationEncryption { enabled = true }\nintAnnotationEncryption { enabled = true }`);
+    parts.push(`stringEncryption {\n  enabled = true\n  type = STANDARD\n  # current: wide mode keys from live seed context\n  # proposed: keyDerivation = SITE_BOUND\n}\n\nstringAnnotationEncryption { enabled = true }\nintAnnotationEncryption { enabled = true }`);
   }
   if (profileEnabled("numbers")) {
-    parts.push(`numberEncryption {\n  enabled = true\n  # future: encoders = [XOR, ARX, FEISTEL]\n  # future: longEncoders = [ARX64, FEISTEL64]\n}`);
+    parts.push(`numberEncryption {\n  enabled = true\n  # current: XOR-shaped seeded constants\n  # proposed: encoders = [XOR, ARX, FEISTEL]\n  # proposed: longEncoders = [ARX64, FEISTEL64]\n}`);
   }
   if (profileEnabled("hashers")) {
-    parts.push(`pureEncryption { enabled = true }\nflowSwitch { enabled = true }\nflowRange { enabled = true }\n# future: hashers = POLYMORPHIC_ROTATING`);
+    parts.push(`pureEncryption { enabled = true }\nflowSwitch { enabled = true }\nflowRange { enabled = true }\n# partial: VM/pure hashers exist, switch/range seed loaders still need unification\n# proposed: hashers = POLYMORPHIC_ROTATING`);
   }
   if (profileEnabled("structural")) {
     parts.push(`signatureObfuscation {\n  enabled = true\n  arguments = true\n  returns = true\n  returnThreadKey = true\n}\n\nmethodDispatch { enabled = true }\nmethodMerge { enabled = true }\nmethodCallObfuscation { enabled = true }`);
@@ -1295,17 +1922,21 @@ function updateConfig() {
 
 document.getElementById("copyConfig").addEventListener("click", async () => {
   const text = document.getElementById("configOutput").textContent;
+  const label = document.getElementById("copyConfigLabel");
   try {
     await navigator.clipboard.writeText(text);
-    document.getElementById("copyConfig").lastChild.textContent = "Copied";
-    setTimeout(() => { document.getElementById("copyConfig").lastChild.textContent = "Copy"; }, 1200);
+    label.textContent = "Copied";
+    setTimeout(() => { label.textContent = "Copy"; }, 1200);
   } catch {
     window.getSelection().selectAllChildren(document.getElementById("configOutput"));
+    label.textContent = "Selected - press Cmd+C";
+    setTimeout(() => { label.textContent = "Copy"; }, 2200);
   }
 });
 
 selectChange(0);
 updateLab();
+updatePlaybook();
 updateSimulator();
 renderMesh();
 updateConfig();

@@ -1,6 +1,6 @@
 package dev.skidfuscator.obfuscator.number.encrypt.impl;
 
-import dev.skidfuscator.obfuscator.number.encrypt.NumberTransformer;
+import dev.skidfuscator.obfuscator.number.encrypt.LongNumberTransformer;
 import dev.skidfuscator.obfuscator.predicate.factory.PredicateFlowGetter;
 import dev.skidfuscator.obfuscator.skidasm.fake.FakeArithmeticExpr;
 import org.mapleir.ir.cfg.BasicBlock;
@@ -17,7 +17,7 @@ import org.objectweb.asm.Type;
  * @since 09/03/2021
  * SkidfuscatorV2 © 2021
  */
-public class XorNumberTransformer implements NumberTransformer {
+public class XorNumberTransformer implements LongNumberTransformer {
     @Override
     public Expr getNumber(
             final int outcome,
@@ -38,6 +38,7 @@ public class XorNumberTransformer implements NumberTransformer {
      * over {@code long} operands (LXOR), reading the seed via the wide projection of
      * {@code startingExpr}. Used only on the {@code seed.wide} path.
      */
+    @Override
     public Expr getNumberLong(
             final long outcome,
             final long starting,

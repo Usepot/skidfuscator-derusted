@@ -4,11 +4,11 @@ import lombok.experimental.UtilityClass;
 import org.objectweb.asm.Type;
 
 import java.io.IOException;
-import java.util.Random;
+import java.security.SecureRandom;
 
 @UtilityClass
 public class RandomUtil {
-    private final Random random = new Random();
+    private final SecureRandom random = new SecureRandom();
 
     public int nextInt() {
         return nextInt(Integer.MAX_VALUE);

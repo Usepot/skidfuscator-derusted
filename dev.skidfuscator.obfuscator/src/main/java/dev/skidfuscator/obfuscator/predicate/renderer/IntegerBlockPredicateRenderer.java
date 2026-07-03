@@ -10,7 +10,6 @@ import dev.skidfuscator.obfuscator.event.impl.transform.method.PostMethodTransfo
 import dev.skidfuscator.obfuscator.event.impl.transform.skid.InitSkidTransformEvent;
 import dev.skidfuscator.obfuscator.hierarchy.matching.ClassMethodHash;
 import dev.skidfuscator.obfuscator.number.NumberManager;
-import dev.skidfuscator.obfuscator.number.encrypt.impl.XorNumberTransformer;
 import dev.skidfuscator.obfuscator.number.hash.impl.BitwiseHashTransformer;
 import dev.skidfuscator.obfuscator.number.hash.impl.LegacyHashTransformer;
 import dev.skidfuscator.obfuscator.number.pure.VmHashTransformer;
@@ -213,7 +212,6 @@ import java.util.stream.Collectors;
             return;
 
         methodPredicate.setGetter(vertex -> {
-            final XorNumberTransformer numberTransformer = new XorNumberTransformer();
             final SkidMethodNode skidMethodNode = (SkidMethodNode) vertex.cfg.getMethodNode();
             final SkidClassNode skidClassNode = (SkidClassNode) skidMethodNode.owner;
 
@@ -237,7 +235,7 @@ import java.util.stream.Collectors;
                 expr = classPredicate.getGetter();
             }
 
-            return numberTransformer.getNumber(
+            return NumberManager.encrypt(
                     methodPredicate.getPrivate(),
                     seed,
                     vertex,
@@ -395,13 +393,13 @@ import java.util.stream.Collectors;
                  * runtime, so (P_long(entry) ^ getPrivateLong) ^ getPrivateLong
                  * collapses to P_long(entry).
                  */
-                ? new XorNumberTransformer().getNumberLong(
+                ? NumberManager.encryptLong(
                         methodNode.getBlockPredicateLong(seedEntry), // Outcome (64-bit)
                         methodNode.getPredicate().getPrivateLong(),  // Entry (64-bit)
                         entryPoint,
                         getter
                 )
-                : new XorNumberTransformer().getNumber(
+                : NumberManager.encrypt(
                         methodNode.getBlockPredicate(seedEntry), // Outcome
                         methodNode.getPredicate().getPrivate(), // Entry
                         entryPoint,

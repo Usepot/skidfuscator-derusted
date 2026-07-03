@@ -43,17 +43,18 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
         }
 
         final byte[] encrypted = input.getBytes(StandardCharsets.UTF_8);
-        final byte[] keyBytes = Integer.toString(getThreadedStringSeed(node, block)).getBytes(StandardCharsets.UTF_8);
+        final int salt = RandomUtil.nextInt() | 1;
+        final int site = getStringSiteHash(node, block, salt);
+        final int guard = ((salt * 31) >>> 4) ^ (encrypted.length * 17) ^ (padHash >>> 3);
+        final int key = deriveStringKey(getThreadedStringSeed(node, block), site, salt, guard, padHash);
+        final byte[] keyBytes = Integer.toString(key).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < encrypted.length; i++) {
             encrypted[i] ^= keyBytes[i % keyBytes.length];
             encrypted[i] ^= pad[i % pad.length];
         }
 
-        final int salt = RandomUtil.nextInt() | 1;
-        final int guard = ((salt * 31) >>> 4) ^ (encrypted.length * 17) ^ (padHash >>> 3);
-
-        final byte[] packed = new byte[encrypted.length + 8];
+        final byte[] packed = new byte[encrypted.length + 12];
         packed[0] = (byte) (salt >>> 24);
         packed[1] = (byte) (salt >>> 16);
         packed[2] = (byte) (salt >>> 8);
@@ -62,11 +63,15 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
         packed[5] = (byte) (guard >>> 16);
         packed[6] = (byte) (guard >>> 8);
         packed[7] = (byte) guard;
-        System.arraycopy(encrypted, 0, packed, 8, encrypted.length);
+        packed[8] = (byte) (site >>> 24);
+        packed[9] = (byte) (site >>> 16);
+        packed[10] = (byte) (site >>> 8);
+        packed[11] = (byte) site;
+        System.arraycopy(encrypted, 0, packed, 12, encrypted.length);
 
         final String encoded = Base64.getEncoder().encodeToString(packed);
         final int common = encoded.hashCode() ^ padHash;
-        final int mask = salt ^ common ^ guard;
+        final int mask = salt ^ common ^ guard ^ site;
 
         return callInjectMethod(
                 node.getParent(),
@@ -82,24 +87,24 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
     }
 
     /**
-     * seed.wide variant. Keys on the full 64-bit block predicate
-     * ({@code Long.toString}) and widens the key mask to 64 bits so the high
-     * 32 bits of entropy are masked too (not left bare). The salt/guard
-     * integrity header and its {@code noise != 0} check are unchanged.
+     * seed.wide variant. Derives a per-site long key from the full 64-bit block
+     * predicate and widens the seed mask so the high 32 bits of entropy are not
+     * left bare. The salt/guard integrity header still guards the packed data.
      */
     private Expr encryptWide(String input, SkidMethodNode node, SkidBlock block) {
         final byte[] encrypted = input.getBytes(StandardCharsets.UTF_8);
-        final byte[] keyBytes = Long.toString(getThreadedStringSeedLong(node, block)).getBytes(StandardCharsets.UTF_8);
+        final int salt = RandomUtil.nextInt() | 1;
+        final int site = getStringSiteHash(node, block, salt);
+        final int guard = ((salt * 31) >>> 4) ^ (encrypted.length * 17) ^ (padHash >>> 3);
+        final long key = deriveStringKeyLong(getThreadedStringSeedLong(node, block), site, salt, guard, padHash);
+        final byte[] keyBytes = Long.toString(key).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < encrypted.length; i++) {
             encrypted[i] ^= keyBytes[i % keyBytes.length];
             encrypted[i] ^= pad[i % pad.length];
         }
 
-        final int salt = RandomUtil.nextInt() | 1;
-        final int guard = ((salt * 31) >>> 4) ^ (encrypted.length * 17) ^ (padHash >>> 3);
-
-        final byte[] packed = new byte[encrypted.length + 8];
+        final byte[] packed = new byte[encrypted.length + 12];
         packed[0] = (byte) (salt >>> 24);
         packed[1] = (byte) (salt >>> 16);
         packed[2] = (byte) (salt >>> 8);
@@ -108,12 +113,16 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
         packed[5] = (byte) (guard >>> 16);
         packed[6] = (byte) (guard >>> 8);
         packed[7] = (byte) guard;
-        System.arraycopy(encrypted, 0, packed, 8, encrypted.length);
+        packed[8] = (byte) (site >>> 24);
+        packed[9] = (byte) (site >>> 16);
+        packed[10] = (byte) (site >>> 8);
+        packed[11] = (byte) site;
+        System.arraycopy(encrypted, 0, packed, 12, encrypted.length);
 
         final String encoded = Base64.getEncoder().encodeToString(packed);
         final int common = encoded.hashCode() ^ padHash;
-        final int mask = salt ^ common ^ guard;
-        final long maskLong = ((long) mask << 32) ^ (mask & 0xFFFFFFFFL);
+        final int mask = salt ^ common ^ guard ^ site;
+        final long maskLong = widenMask(mask);
 
         return callInjectMethod(
                 node.getParent(),
@@ -167,7 +176,7 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
     private static String decryptBase64Padded(final String input, final int maskedKey) {
         final byte[] packed = Base64.getDecoder().decode(input.getBytes(StandardCharsets.UTF_8));
 
-        if (packed.length < 8) {
+        if (packed.length < 12) {
             throw new IllegalStateException();
         }
 
@@ -179,7 +188,11 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
                 | ((packed[5] & 0xFF) << 16)
                 | ((packed[6] & 0xFF) << 8)
                 | (packed[7] & 0xFF);
-        final byte[] decoded = Arrays.copyOfRange(packed, 8, packed.length);
+        final int site = ((packed[8] & 0xFF) << 24)
+                | ((packed[9] & 0xFF) << 16)
+                | ((packed[10] & 0xFF) << 8)
+                | (packed[11] & 0xFF);
+        final byte[] decoded = Arrays.copyOfRange(packed, 12, packed.length);
 
         int padHash = 0x6D2B79F5;
 
@@ -196,7 +209,31 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
             throw new IllegalStateException();
         }
 
-        final int key = maskedKey ^ salt ^ common ^ guard;
+        long tamper = 0L;
+        try {
+            final Object value = Class.forName("sdk.Tamper").getMethod("poison").invoke(null);
+            if (value instanceof Long) {
+                tamper = ((Long) value).longValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        final int kdfContext = padHash ^ (int) tamper ^ (int) (tamper >>> 32);
+        final int seed = maskedKey ^ salt ^ common ^ guard ^ site;
+        long state = (seed & 0xFFFFFFFFL) ^ 0xD6E8FEB86659FD93L;
+        state ^= ((long) site << 32) ^ (salt & 0xFFFFFFFFL);
+        state ^= state >>> 33;
+        state *= 0xff51afd7ed558ccdL;
+        state ^= state >>> 33;
+        state *= 0xc4ceb9fe1a85ec53L;
+        state ^= state >>> 33;
+        state ^= Integer.toUnsignedLong(guard) * 0x9E3779B97F4A7C15L;
+        state = Long.rotateLeft(state, 29) ^ Integer.toUnsignedLong(kdfContext);
+        state ^= state >>> 33;
+        state *= 0xff51afd7ed558ccdL;
+        state ^= state >>> 33;
+        state *= 0xc4ceb9fe1a85ec53L;
+        state ^= state >>> 33;
+        final int key = (int) (state ^ (state >>> 32));
         final byte[] keyBytes = Integer.toString(key).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < decoded.length; i++) {
@@ -214,7 +251,7 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
     private static String decryptBase64PaddedWide(final String input, final long maskedKey) {
         final byte[] packed = Base64.getDecoder().decode(input.getBytes(StandardCharsets.UTF_8));
 
-        if (packed.length < 8) {
+        if (packed.length < 12) {
             throw new IllegalStateException();
         }
 
@@ -226,7 +263,11 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
                 | ((packed[5] & 0xFF) << 16)
                 | ((packed[6] & 0xFF) << 8)
                 | (packed[7] & 0xFF);
-        final byte[] decoded = Arrays.copyOfRange(packed, 8, packed.length);
+        final int site = ((packed[8] & 0xFF) << 24)
+                | ((packed[9] & 0xFF) << 16)
+                | ((packed[10] & 0xFF) << 8)
+                | (packed[11] & 0xFF);
+        final byte[] decoded = Arrays.copyOfRange(packed, 12, packed.length);
 
         int padHash = 0x6D2B79F5;
 
@@ -243,9 +284,32 @@ public class Base64PaddedV3EncryptionGenerator extends AbstractEncryptionGenerat
             throw new IllegalStateException();
         }
 
-        final int mask = salt ^ common ^ guard;
-        final long maskLong = ((long) mask << 32) ^ (mask & 0xFFFFFFFFL);
-        final long key = maskedKey ^ maskLong;
+        long tamper = 0L;
+        try {
+            final Object value = Class.forName("sdk.Tamper").getMethod("poison").invoke(null);
+            if (value instanceof Long) {
+                tamper = ((Long) value).longValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        final int kdfContext = padHash ^ (int) tamper ^ (int) (tamper >>> 32);
+        final int mask = salt ^ common ^ guard ^ site;
+        final long seed = maskedKey ^ (((long) mask << 32) ^ (mask & 0xFFFFFFFFL));
+        long state = seed ^ 0xD6E8FEB86659FD93L;
+        state ^= ((long) site << 32) ^ (salt & 0xFFFFFFFFL);
+        state ^= state >>> 33;
+        state *= 0xff51afd7ed558ccdL;
+        state ^= state >>> 33;
+        state *= 0xc4ceb9fe1a85ec53L;
+        state ^= state >>> 33;
+        state ^= Integer.toUnsignedLong(guard) * 0x9E3779B97F4A7C15L;
+        state = Long.rotateLeft(state, 29) ^ Integer.toUnsignedLong(kdfContext);
+        state ^= state >>> 33;
+        state *= 0xff51afd7ed558ccdL;
+        state ^= state >>> 33;
+        state *= 0xc4ceb9fe1a85ec53L;
+        state ^= state >>> 33;
+        final long key = state;
         final byte[] keyBytes = Long.toString(key).getBytes(StandardCharsets.UTF_8);
 
         for (int i = 0; i < decoded.length; i++) {

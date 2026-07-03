@@ -24,6 +24,7 @@ Avoid generic hacker-movie visuals, neon skull aesthetics, vague "military-grade
 
 - Show the mechanism: every hardening claim should connect to a seed path, bytecode shape, transformer, or runtime consequence.
 - Make tradeoffs visible: compatibility, runtime cost, and test burden should be surfaced next to the benefit.
+- Separate shipped, partial, and proposed hardening. A roadmap page may model future ARX/KDF/DRBG/Tier B work, but every control must say whether it maps to current config, current code without a UI knob, or a target design.
 - Prefer interactive explanation over slogans: let users toggle seed width, guard compression, KDF coupling, and tamper tiers to see what changes.
 - Stay local-first: docs and tools should work offline from the repo when possible.
 - Be honest about limits: protected bytecode still runs locally, so the objective is to increase analysis cost and reduce reusable deobfuscation patterns.

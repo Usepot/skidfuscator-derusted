@@ -36,6 +36,7 @@ public final class Tamper {
      * started — the build is behaviourally identical to an unprotected one.
      */
     private static final AtomicBoolean ARMED = new AtomicBoolean(false);
+    private static volatile long POISON = 0L;
 
     private Tamper() {
     }
@@ -83,6 +84,15 @@ public final class Tamper {
     }
 
     /**
+     * Runtime poison for downstream hardening. Clean programs keep returning zero.
+     * A detected mismatch flips this word before the deferred reaction fires, so
+     * consumers can silently corrupt derived keys instead of only throwing/exiting.
+     */
+    public static long poison() {
+        return POISON;
+    }
+
+    /**
      * Arm the silent reaction once. Spawns a thread that waits a jittered delay
      * and then halts the JVM with an innocuous exit code. The delay is derived
      * from the call (no fixed timing signature to fingerprint); the thread is
@@ -91,6 +101,7 @@ public final class Tamper {
      * clean exit.
      */
     private static void detonate(final long seed) {
+        poison(seed);
         if (!ARMED.compareAndSet(false, true)) {
             return; // a reaction is already pending; absorb further detections silently
         }
@@ -107,6 +118,19 @@ public final class Tamper {
         });
         reaper.setDaemon(false);
         reaper.start();
+    }
+
+    private static void poison(final long seed) {
+        long value = seed ^ 0x9E3779B97F4A7C15L;
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        value ^= value >>> 33;
+        if (value == 0L) {
+            value = 0xD6E8FEB86659FD93L;
+        }
+        POISON ^= value;
     }
 
     private static boolean matches(final Class<?> target, final long expected) {

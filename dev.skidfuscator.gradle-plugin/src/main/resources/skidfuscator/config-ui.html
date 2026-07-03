@@ -472,12 +472,12 @@ const CATALOG = [
     { id:"flowCondition", name:"Flow Condition", def:true,
       desc:"Adds bogus conditions and opaque predicates to control-flow branches.",
       opts:[
-        {key:"compressing.enabled", label:"Compress guard seed", type:"bool", def:false,
+        {key:"compressing.enabled", label:"Compress guard seed", type:"bool", def:true,
          desc:"Hash the full 64-bit seed folded to 32 bits so a guard constant no longer reveals the seed. Requires Wide Seed."},
-        {key:"compressing.salt", label:"Non-linear fold", type:"bool", def:false,
+        {key:"compressing.salt", label:"Non-linear fold", type:"bool", def:true,
          desc:"Use a non-linear multiply-mix fold to resist cross-guard correlation. Requires guard compression."},
       ] },
-    { id:"seed", name:"Wide Seed (64-bit)", def:false, tag:"Hardening", flag:"wide",
+    { id:"seed", name:"Wide Seed (64-bit)", def:true, tag:"Hardening", flag:"wide",
       desc:"Thread the per-block flow seed as a 64-bit long instead of 32-bit, so a single guard read yields roughly 2^32 candidate seeds. Required by Flow Condition guard compression." },
     { id:"flowException", name:"Flow Exception", def:true,
       desc:"Wraps control flow in fake exception handlers to confuse decompilers.",
@@ -511,12 +511,12 @@ const CATALOG = [
         desc:"Store class/static predicates in private static fields instead of inlining constants."} ] },
   ]},
 
-  { cat: "Hardening", hint: "SDK, integrity mesh, and structural passes. Several are off by default; test before shipping.", items: [
+  { cat: "Hardening", hint: "SDK, integrity mesh, and structural passes. Risky structural passes stay opt-in; test before shipping.", items: [
     { id:"sdk", name:"SDK Injector", def:true,
       desc:"Injects the Skidfuscator runtime SDK into the output jar. Required by SDK-dependent passes such as tamper protection." },
-    { id:"tamperProtection", name:"Tamper Protection", def:false, tag:"Hardening",
+    { id:"tamperProtection", name:"Tamper Protection", def:true, tag:"Hardening",
       desc:"Cross-class self-integrity mesh: each protected class verifies a sibling's whole-file checksum at load time, so patching one class trips a checker in another. Requires the SDK.",
-      opts:[ {key:"action", label:"On tamper", type:"enum", values:["THROW","EXIT","SILENT"], def:"THROW",
+      opts:[ {key:"action", label:"On tamper", type:"enum", values:["THROW","EXIT","SILENT"], def:"SILENT",
         desc:"THROW raises an error at the check; EXIT halts the JVM; SILENT lets the check pass then arms a deferred, off-thread halt (hardest to trace)."} ] },
     { id:"signatureObfuscation", name:"Signature Obfuscation", def:false, tag:"Risky",
       desc:"Rewrites internally-called method signatures into (byte[], Object[]) carriers. Arguments packed into carriers, and/or the return wrapped into a carrier array.",
@@ -611,11 +611,13 @@ const PRESETS = {
     outliner:false, ahegao:false } },
   "Hardened":    { tip:"flow + integrity", state:{
     seed:true,
+    sdk:true,
     flowCondition:{enabled:true, "compressing.enabled":true, "compressing.salt":true},
     tamperProtection:{enabled:true, action:"SILENT"},
     "flowException.strength":"AGGRESSIVE" } },
   "Maximum":     { tip:"everything safe-ish, test it", state:{
     seed:true,
+    sdk:true,
     flowCondition:{enabled:true, "compressing.enabled":true, "compressing.salt":true},
     tamperProtection:{enabled:true, action:"SILENT"},
     signatureObfuscation:{enabled:true, arguments:true, returns:true, returnThreadKey:true},

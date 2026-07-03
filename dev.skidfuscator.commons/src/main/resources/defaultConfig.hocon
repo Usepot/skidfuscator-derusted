@@ -36,8 +36,8 @@ flowCondition {
   # (J)I pool so the baked guard constant no longer inverts to a unique seed.
   # Requires seed.wide; force-disabled with a warning otherwise.
   compressing {
-    enabled: false
-    salt: false
+    enabled: true
+    salt: true
   }
   exempt: []
 }
@@ -89,21 +89,25 @@ driver: {
 }
 
 # Thread the per-block flow seed as a 64-bit long instead of a 32-bit int.
-# Default off => byte-for-byte identical to the legacy int-seed pipeline.
+# Default on for stronger serious/default protection; set false for the legacy
+# int-seed pipeline.
 seed: {
-  wide: false
+  wide: true
 }
 
 reference {
   enabled: false
 }
 
+sdk {
+  enabled: true
+}
+
 # Cross-class self-integrity mesh injected at output time. Each protected class
 # verifies a sibling's whole-file checksum in its <clinit>, so patching one class
-# trips a checker in another. Requires sdk.enabled. Off by default (byte-for-byte
-# identical output to the legacy pipeline when disabled).
+# trips a checker in another. Requires sdk.enabled, which is on by default.
 tamperProtection {
-  enabled = false
+  enabled = true
   # Reaction on a checksum mismatch:
   #   THROW  - raise an error from the verifying class (loud, fails at the check site)
   #   EXIT   - halt the JVM at the check site
@@ -111,7 +115,7 @@ tamperProtection {
   #            halts the JVM after a randomised delay, so the failure surfaces
   #            later and away from the check (and the patched class). Hardest to
   #            trace; a clean build is behaviourally unchanged.
-  action = THROW
+  action = SILENT
 }
 
 proprietaryNotice {

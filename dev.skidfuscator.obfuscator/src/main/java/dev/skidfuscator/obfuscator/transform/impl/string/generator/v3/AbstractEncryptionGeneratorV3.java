@@ -352,6 +352,71 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
         return node.getBlockPredicateLong(block);
     }
 
+    protected int getStringSiteHash(final SkidMethodNode node, final SkidBlock block, final int salt) {
+        int hash = 0x4F1BBCDC;
+        hash = mixSite(hash, node.getParent().getName());
+        hash = mixSite(hash, node.getName());
+        hash = mixSite(hash, node.getDesc());
+        hash = (hash * 0x45D9F3B) ^ block.getDisplayName().hashCode();
+        hash = (hash * 0x45D9F3B) ^ salt;
+        hash ^= hash >>> 16;
+        return hash;
+    }
+
+    protected int foldBytesForStringKey(final byte[] input) {
+        int hash = 0x6D2B79F5;
+
+        for (byte value : input) {
+            hash ^= value & 0xFF;
+            hash *= 0x45D9F3B;
+            hash ^= hash >>> 16;
+        }
+
+        return hash;
+    }
+
+    protected int deriveStringKey(final int seed,
+                                  final int site,
+                                  final int salt,
+                                  final int guard,
+                                  final int context) {
+        return foldStringKey(deriveStringKeyLong(seed & 0xFFFFFFFFL, site, salt, guard, context));
+    }
+
+    protected long deriveStringKeyLong(final long seed,
+                                       final int site,
+                                       final int salt,
+                                       final int guard,
+                                       final int context) {
+        long state = seed ^ 0xD6E8FEB86659FD93L;
+        state ^= ((long) site << 32) ^ (salt & 0xFFFFFFFFL);
+        state = mix64(state);
+        state ^= Integer.toUnsignedLong(guard) * 0x9E3779B97F4A7C15L;
+        state = Long.rotateLeft(state, 29) ^ Integer.toUnsignedLong(context);
+        return mix64(state);
+    }
+
+    protected int foldStringKey(final long key) {
+        return (int) (key ^ (key >>> 32));
+    }
+
+    protected long widenMask(final int mask) {
+        return ((long) mask << 32) ^ (mask & 0xFFFFFFFFL);
+    }
+
+    private int mixSite(final int hash, final String value) {
+        return (hash * 0x45D9F3B) ^ (value == null ? 0 : value.hashCode());
+    }
+
+    private long mix64(long value) {
+        value ^= value >>> 33;
+        value *= 0xff51afd7ed558ccdL;
+        value ^= value >>> 33;
+        value *= 0xc4ceb9fe1a85ec53L;
+        value ^= value >>> 33;
+        return value;
+    }
+
     /**
      * Runtime 64-bit string-key expression ({@code seed.wide}). Reads the wide
      * projection of the threaded flow local via {@link PredicateFlowGetter#getWide};

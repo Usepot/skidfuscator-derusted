@@ -62,7 +62,7 @@ public class SwitchSeedLoaderRenderer extends AbstractSeedLoaderRenderer {
         final PredicateFlowGetter getter = predicate.getGetter();
         final PredicateFlowSetter setter = predicate.getSetter();
 
-        final HashTransformer hashTransformer = methodNode.getSkidfuscator().getLegacyHasher();
+        final HashTransformer hashTransformer = NumberManager.randomHasher(methodNode.getSkidfuscator());
         final SkiddedHash hash = hashTransformer.hash(value, block, getter);
 
         final LinkedHashMap<Integer, BasicBlock> switcher = new LinkedHashMap<>();

@@ -4,7 +4,7 @@ import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.event.EventPriority;
 import dev.skidfuscator.obfuscator.event.annotation.Listen;
 import dev.skidfuscator.obfuscator.event.impl.transform.method.PostMethodTransformEvent;
-import dev.skidfuscator.obfuscator.number.encrypt.impl.XorNumberTransformer;
+import dev.skidfuscator.obfuscator.number.NumberManager;
 import dev.skidfuscator.obfuscator.number.hash.HashTransformer;
 import dev.skidfuscator.obfuscator.predicate.factory.PredicateFlowGetter;
 import dev.skidfuscator.obfuscator.predicate.opaque.BlockOpaquePredicate;
@@ -37,7 +37,7 @@ import java.util.Set;
  * <p>Both halves consume the same block flow-seed and both rewrite operands, so
  * running them as separate passes (in different phases) meant condition hashing
  * fired on the <i>clean</i> conditions and the seed-weaving that produces the
- * readable {@code K ^ seed} forms happened afterwards, outside the hash. Doing
+ * constant expressions happened afterwards, outside the hash. Doing
  * them together, here in {@link PostMethodTransformEvent}, guarantees the hash
  * always wraps the seed-woven form.</p>
  *
@@ -111,7 +111,7 @@ public class NumberTransformer extends AbstractTransformer {
                 /*
                  * (1) Equality comparison -> hash both sides, salted with the live
                  *     block seed. This wraps the seed-woven value in the hash
-                 *     instead of leaving a bare `K ^ seed` operand for step (2) to
+                 *     instead of leaving a bare encoded operand for step (2) to
                  *     produce. We then skip (2) for this statement (the `continue`)
                  *     so the two halves never touch the same expression.
                  */
@@ -133,7 +133,7 @@ public class NumberTransformer extends AbstractTransformer {
                     if (TYPES.contains(constantExpr.getType())) {
                         final CodeUnit parent = constantExpr.getParent();
                         final int value = ((Number) constantExpr.getConstant()).intValue();
-                        final Expr modified = new XorNumberTransformer().getNumber(
+                        final Expr modified = NumberManager.encrypt(
                                 value,
                                 predicate,
                                 skidBlock,
@@ -151,7 +151,7 @@ public class NumberTransformer extends AbstractTransformer {
                          */
                         final CodeUnit parent = constantExpr.getParent();
                         final long value = ((Number) constantExpr.getConstant()).longValue();
-                        final Expr modified = new XorNumberTransformer().getNumberLong(
+                        final Expr modified = NumberManager.encryptLong(
                                 value,
                                 flowPredicate.getLong(skidBlock),
                                 skidBlock,

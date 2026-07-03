@@ -3,7 +3,7 @@ package dev.skidfuscator.obfuscator.transform.impl.flow.interprocedural;
 import dev.skidfuscator.obfuscator.Skidfuscator;
 import dev.skidfuscator.obfuscator.event.annotation.Listen;
 import dev.skidfuscator.obfuscator.event.impl.transform.clazz.InitClassTransformEvent;
-import dev.skidfuscator.obfuscator.number.encrypt.impl.XorNumberTransformer;
+import dev.skidfuscator.obfuscator.number.NumberManager;
 import dev.skidfuscator.obfuscator.predicate.factory.PredicateFlowGetter;
 import dev.skidfuscator.obfuscator.predicate.opaque.ClassOpaquePredicate;
 import dev.skidfuscator.obfuscator.skidasm.SkidClassNode;
@@ -21,17 +21,14 @@ import org.mapleir.ir.code.expr.ArithmeticExpr;
 import org.mapleir.ir.code.expr.ConstantExpr;
 import org.mapleir.ir.code.expr.FieldLoadExpr;
 import org.mapleir.ir.code.expr.VarExpr;
-import org.mapleir.ir.code.expr.invoke.InitialisedObjectExpr;
-import org.mapleir.ir.code.expr.invoke.InvocationExpr;
-import org.mapleir.ir.code.expr.invoke.VirtualInvocationExpr;
 import org.mapleir.ir.code.stmt.FieldStoreStmt;
 import org.mapleir.ir.locals.Local;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
-import java.util.Random;
-
 public class RandomInitTransformer extends AbstractTransformer {
+    private static final int MIX_MULTIPLIER_A = 0x7feb352d;
+    private static final int MIX_MULTIPLIER_B = 0x846ca68b;
 
     public RandomInitTransformer(Skidfuscator skidfuscator) {
         super(skidfuscator, "Interprocedural Harden");
@@ -71,8 +68,7 @@ public class RandomInitTransformer extends AbstractTransformer {
         final SkidMethodNode clinit = classNode.getClassInit();
 
         final long seed = RandomUtil.nextLong();
-        final Random random = new Random(seed);
-        final int nextInt = random.nextInt();
+        final int nextInt = mixSeed(seed);
 
         final Local local = clinit
                 .getCfg()
@@ -84,21 +80,7 @@ public class RandomInitTransformer extends AbstractTransformer {
                 0,
                 new SkidCopyVarStmt(
                         new VarExpr(local, Type.INT_TYPE),
-                        new VirtualInvocationExpr(
-                                InvocationExpr.CallType.VIRTUAL,
-                                new Expr[]{
-                                        new InitialisedObjectExpr(
-                                                "java/util/Random",
-                                                "(J)V",
-                                                new Expr[]{
-                                                        new ConstantExpr(seed, Type.LONG_TYPE)
-                                                }
-                                        )
-                                },
-                                "java/util/Random",
-                                "nextInt",
-                                "()I"
-                        )
+                        createSeedMixExpr(seed)
 
                 )
         );
@@ -107,7 +89,7 @@ public class RandomInitTransformer extends AbstractTransformer {
                 1,
                 new FieldStoreStmt(
                         null,
-                        new XorNumberTransformer().getNumber(
+                        NumberManager.encrypt(
                                 clazzStaticPredicate.get(),
                                 nextInt,
                                 clinit.getEntryBlock(),
@@ -200,5 +182,43 @@ public class RandomInitTransformer extends AbstractTransformer {
                             clazzInstancePredicate.getSetter().apply(expr)
                     );
                 });
+    }
+
+    private static int mixSeed(final long seed) {
+        int value = (int) seed ^ (int) (seed >>> 32);
+        value ^= value >>> 16;
+        value *= MIX_MULTIPLIER_A;
+        value ^= value >>> 15;
+        value *= MIX_MULTIPLIER_B;
+        value ^= value >>> 16;
+        return value;
+    }
+
+    private static Expr createSeedMixExpr(final long seed) {
+        Expr value = xor(
+                constant((int) seed),
+                constant((int) (seed >>> 32))
+        );
+        value = xor(value, ushr(value.copy(), 16));
+        value = multiply(value, constant(MIX_MULTIPLIER_A));
+        value = xor(value, ushr(value.copy(), 15));
+        value = multiply(value, constant(MIX_MULTIPLIER_B));
+        return xor(value, ushr(value.copy(), 16));
+    }
+
+    private static Expr constant(final int value) {
+        return new ConstantExpr(value, Type.INT_TYPE);
+    }
+
+    private static Expr xor(final Expr left, final Expr right) {
+        return new FakeArithmeticExpr(left, right, ArithmeticExpr.Operator.XOR);
+    }
+
+    private static Expr multiply(final Expr left, final Expr right) {
+        return new FakeArithmeticExpr(left, right, ArithmeticExpr.Operator.MUL);
+    }
+
+    private static Expr ushr(final Expr value, final int shift) {
+        return new FakeArithmeticExpr(value, constant(shift), ArithmeticExpr.Operator.USHR);
     }
 }

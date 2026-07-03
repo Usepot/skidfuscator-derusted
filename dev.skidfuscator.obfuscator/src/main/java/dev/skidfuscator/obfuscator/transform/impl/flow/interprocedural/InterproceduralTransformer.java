@@ -6,7 +6,7 @@ import dev.skidfuscator.obfuscator.event.impl.transform.clazz.InitClassTransform
 import dev.skidfuscator.obfuscator.event.impl.transform.group.InitGroupTransformEvent;
 import dev.skidfuscator.obfuscator.event.impl.transform.method.InitMethodTransformEvent;
 import dev.skidfuscator.obfuscator.hierarchy.matching.ClassMethodHash;
-import dev.skidfuscator.obfuscator.number.encrypt.impl.XorNumberTransformer;
+import dev.skidfuscator.obfuscator.number.NumberManager;
 import dev.skidfuscator.obfuscator.predicate.factory.PredicateFlowGetter;
 import dev.skidfuscator.obfuscator.predicate.factory.PredicateFlowSetter;
 import dev.skidfuscator.obfuscator.predicate.opaque.BlockOpaquePredicate;
@@ -345,7 +345,6 @@ public class InterproceduralTransformer extends AbstractTransformer {
             }
 
             private Expr build(final BasicBlock vertex, final boolean wide) {
-                final XorNumberTransformer numberTransformer = new XorNumberTransformer();
                 final SkidMethodNode skidMethodNode = (SkidMethodNode) vertex.cfg.getMethodNode();
                 final SkidClassNode skidClassNode = (SkidClassNode) skidMethodNode.owner;
 
@@ -397,7 +396,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
                         };
                     }
 
-                    return numberTransformer.getNumber(
+                    return NumberManager.encrypt(
                             methodPredicate.getPrivate(),
                             seed,
                             vertex,
@@ -438,7 +437,7 @@ public class InterproceduralTransformer extends AbstractTransformer {
                     };
                 }
 
-                return numberTransformer.getNumberLong(
+                return NumberManager.encryptLong(
                         methodPredicate.getPrivateLong(),
                         startingLong,
                         vertex,

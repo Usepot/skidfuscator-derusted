@@ -40,6 +40,7 @@ import org.objectweb.asm.Type;
 
 import java.awt.*;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.List;
 
@@ -68,7 +69,7 @@ public class VmHashTransformer implements HashTransformer {
      * lossy masked comparison needs to stay correct.
      */
     private boolean pinned;
-    private final Random random = new Random();
+    private final SecureRandom random = new SecureRandom();
     private Object[] randomArgs;  // Store random values for consistency
     private InvocationUtil invocationUtil;
     private JavaMethod printStackTrace;
@@ -293,7 +294,7 @@ public class VmHashTransformer implements HashTransformer {
 
         for (int i = 0; i < args.length; i++) {
             if (i == predicateParam.getIndex()) {
-                args[i] = Argument.int32(skidfuscator.getLegacyHasher().hash(starting));
+                args[i] = Argument.int32(baseHasher().hash(starting));
             } else {
                 args[i] = VmUtil.getArgument(vm, randomArgs[i], Type.getArgumentTypes(selectedMethod.getDesc())[i]);
             }
@@ -312,7 +313,7 @@ public class VmHashTransformer implements HashTransformer {
         Expr[] invokeArgs = new Expr[types.length];
         for (int i = 0; i < invokeArgs.length; i++) {
             if (i == predicateParam.getIndex()) {
-                invokeArgs[i] = skidfuscator.getLegacyHasher().hash(vertex, caller);
+                invokeArgs[i] = baseHasher().hash(vertex, caller);
             } else {
                 invokeArgs[i] = createConstantExpr(types[i], randomArgs[i]);
             }
@@ -328,6 +329,13 @@ public class VmHashTransformer implements HashTransformer {
         //System.out.println(String.format("Invoking with %s", invoke));
 
         return invoke;
+    }
+
+    private HashTransformer baseHasher() {
+        if (skidfuscator.getBitwiseHasher() != null) {
+            return skidfuscator.getBitwiseHasher();
+        }
+        throw new IllegalStateException("No VM base hasher has been initialized");
     }
 
     @Override
@@ -588,4 +596,3 @@ public class VmHashTransformer implements HashTransformer {
         private final Type type;
     }
 }
-

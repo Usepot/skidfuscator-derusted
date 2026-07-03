@@ -1,7 +1,12 @@
 package dev.skidfuscator.obfuscator.number;
 
 import dev.skidfuscator.obfuscator.Skidfuscator;
+import dev.skidfuscator.obfuscator.number.encrypt.LongNumberTransformer;
 import dev.skidfuscator.obfuscator.number.encrypt.NumberTransformer;
+import dev.skidfuscator.obfuscator.number.encrypt.impl.AddSubNumberTransformer;
+import dev.skidfuscator.obfuscator.number.encrypt.impl.FeistelNumberTransformer;
+import dev.skidfuscator.obfuscator.number.encrypt.impl.MultiplyNumberTransformer;
+import dev.skidfuscator.obfuscator.number.encrypt.impl.RotateNumberTransformer;
 import dev.skidfuscator.obfuscator.number.encrypt.impl.XorNumberTransformer;
 import dev.skidfuscator.obfuscator.number.hash.HashTransformer;
 import dev.skidfuscator.obfuscator.number.hash.SkiddedHash;
@@ -19,35 +24,42 @@ public class NumberManager {
     private static final NumberTransformer[] TRANSFORMERS = {
             //new DebugNumberTransformer(),
             new XorNumberTransformer(),
+            new AddSubNumberTransformer(),
+            new RotateNumberTransformer(),
+            new MultiplyNumberTransformer(),
+            new FeistelNumberTransformer(),
             //new RandomShiftNumberTransformer()
     };
 
-    private static final HashTransformer[] HASHER = {
-            //new BitwiseHashTransformer(),
-            //new IntelliJHashTransformer(),
-            //new LegacyHashTransformer()
+    private static final LongNumberTransformer[] LONG_TRANSFORMERS = {
+            new XorNumberTransformer(),
+            new AddSubNumberTransformer(),
+            new RotateNumberTransformer(),
+            new MultiplyNumberTransformer(),
+            new FeistelNumberTransformer()
     };
 
     public static Expr encrypt(final int outcome, final int starting, final BasicBlock vertex, final PredicateFlowGetter startingExpr) {
-        // Todo add more transformers + randomization
         return TRANSFORMERS[RandomUtil.nextInt(TRANSFORMERS.length)]
                 .getNumber(outcome, starting, vertex, startingExpr);
     }
 
-    /**
-     * 64-bit counterpart of {@link #encrypt}. Only {@link XorNumberTransformer}
-     * supports long operands, so it is used directly. Seed.wide path only.
-     */
     public static Expr encryptLong(final long outcome, final long starting, final BasicBlock vertex, final PredicateFlowGetter startingExpr) {
-        return new XorNumberTransformer().getNumberLong(outcome, starting, vertex, startingExpr);
+        return LONG_TRANSFORMERS[RandomUtil.nextInt(LONG_TRANSFORMERS.length)]
+                .getNumberLong(outcome, starting, vertex, startingExpr);
     }
 
     public static SkiddedHash hash(final Skidfuscator skidfuscator, final int starting, final BasicBlock vertex, final PredicateFlowGetter local) {
-        // Todo add more transformers + randomization
-        return HASHER[RandomUtil.nextInt(HASHER.length)].hash(starting, vertex, local);
+        return randomHasher(skidfuscator).hash(starting, vertex, local);
     }
 
     public static HashTransformer randomHasher(final Skidfuscator skidfuscator) {
-        return skidfuscator.getLegacyHasher();//HASHER[RandomUtil.nextInt(HASHER.length)];
+        if (skidfuscator.getVmHasher() != null) {
+            return skidfuscator.getVmHasher();
+        }
+        if (skidfuscator.getBitwiseHasher() != null) {
+            return skidfuscator.getBitwiseHasher();
+        }
+        throw new IllegalStateException("No hash transformer has been initialized");
     }
 }

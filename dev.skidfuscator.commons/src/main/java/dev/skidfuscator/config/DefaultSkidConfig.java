@@ -16,11 +16,11 @@ public class DefaultSkidConfig extends DefaultConfig {
 
     /**
      * Thread the per-block flow seed as a 64-bit {@code long} instead of a 32-bit
-     * {@code int}. Default off: when disabled the obfuscator behaves byte-for-byte
-     * as the legacy int-seed pipeline.
+     * {@code int}. Default on for stronger serious/default protection; disabling
+     * it restores the legacy int-seed pipeline.
      */
     public boolean isSeedWide() {
-        return this.getBoolean("seed.wide", false);
+        return this.getBoolean("seed.wide", true);
     }
 
     /**
@@ -29,7 +29,7 @@ public class DefaultSkidConfig extends DefaultConfig {
      * Used at wiring time to warn when the request had to be degraded.
      */
     public boolean isFlowConditionCompressingRequested() {
-        return this.getBoolean("flowCondition.compressing.enabled", false);
+        return this.getBoolean("flowCondition.compressing.enabled", true);
     }
 
     /**
@@ -48,7 +48,7 @@ public class DefaultSkidConfig extends DefaultConfig {
      * instead of the bare seed. Requires {@link #isFlowConditionCompressing() compression}.
      */
     public boolean isFlowConditionCompressingSalt() {
-        return this.getBoolean("flowCondition.compressing.salt", false) && isFlowConditionCompressing();
+        return this.getBoolean("flowCondition.compressing.salt", true) && isFlowConditionCompressing();
     }
 
     public File[] getLibs() {
