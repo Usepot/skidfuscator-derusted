@@ -56,8 +56,11 @@ public class ArrayLoadExpr extends Expr {
 
 	@Override
 	public Type getType() {
-		return arrayExpression.getType().getSort() == Type.ARRAY
-				? arrayExpression.getType().getElementType()
+		final Type arrayType = arrayExpression.getType();
+		// An array load removes ONE dimension. ASM getElementType() removes all
+		// dimensions, incorrectly turning e.g. double[][][i] into a double.
+		return arrayType.getSort() == Type.ARRAY
+				? Type.getType(arrayType.getDescriptor().substring(1))
 				: type.getType();
 	}
 

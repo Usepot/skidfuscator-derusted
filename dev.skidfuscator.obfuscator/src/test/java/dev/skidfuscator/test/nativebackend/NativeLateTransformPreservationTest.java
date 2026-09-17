@@ -60,12 +60,12 @@ class NativeLateTransformPreservationTest {
         final Object key = constructor.newInstance(owner.getName(), callee.getName(), callee.getDesc());
         final Method signatureCandidate = SignatureObfuscationTransformer.class.getDeclaredMethod(
                 "buildCandidate", keyClass, org.objectweb.asm.tree.MethodNode.class,
-                Map.class, Set.class, Map.class, boolean.class, boolean.class, boolean.class);
+                Map.class, Set.class, Map.class, Set.class, boolean.class, boolean.class, boolean.class);
         signatureCandidate.setAccessible(true);
         final Map<Object, Integer> internalCalls = new HashMap<>();
         internalCalls.put(key, 1);
         assertNull(signatureCandidate.invoke(signature, key, callee.node,
-                        Map.of(owner.getName(), owner.node), Set.of(), internalCalls,
+                        Map.of(owner.getName(), owner.node), Set.of(), internalCalls, Set.of(),
                         true, true, false),
                 "native-referenced member must never become a signature candidate");
     }

@@ -156,6 +156,9 @@ public class SkidGroup {
     }
 
     public boolean isEntryPoint() {
+        // A seed parameter cannot be added to only one member of a runtime ABI
+        // family. Preserve the group descriptor, but still transform each body.
+        if (methodNodeList.stream().anyMatch(skidfuscator::isRuntimeContract)) return true;
         if (!skidfuscator.getConfig().getBoolean("interprocedural.threadMixedInvokers", false)) {
             return !application
                     || this.isImplicitFunction()

@@ -123,18 +123,19 @@ public class StringTransformerV2 extends AbstractTransformer {
     }
 
     /*
-     * A static-final String keeps its plaintext in the field's ConstantValue
-     * attribute, which no method-body pass can reach. javac already inlines every
-     * read of such a constant into an LDC (encrypted above), so there is no
-     * getstatic left to satisfy — dropping the attribute removes the plaintext
-     * without changing runtime behaviour. Exempt classes never reach this event.
+     * javac inlining is not proof that a field has no reflective, external or
+     * bytecode getstatic consumers. Pinned ConstantValue fields retain their
+     * values. Stripping other field attributes is an explicit closed-world
+     * option; ordinary literal encryption remains active regardless.
      */
     @Listen
     void handle(final FinalClassTransformEvent event) {
         final SkidClassNode classNode = event.getClassNode();
+        if (!skidfuscator.getConfig().getBoolean("stringEncryption.stripUnreferencedPrivateConstantFields", false)) return;
 
         for (FieldNode field : classNode.getFields()) {
-            if (field.node.value instanceof String) {
+            if (field.node.value instanceof String && field.isPrivate()
+                    && !skidfuscator.isRuntimeFieldContract(field.node)) {
                 field.node.value = null;
                 this.success();
             }

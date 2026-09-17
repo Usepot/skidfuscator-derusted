@@ -4,6 +4,31 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SDK {
+    /**
+     * Exact comparison for encoded UTF-16 literals. Flags: bit 0 means the
+     * original receiver was constant; bit 1 selects equalsIgnoreCase.
+     * No case conversion is performed by the obfuscator: the executing JDK
+     * supplies its own String comparison semantics (including supplementary chars).
+     */
+    public static boolean compareEncoded(Object dynamicOperand, String encodedLiteral, int key, int flags) {
+        char[] chars = encodedLiteral.toCharArray();
+        int state = key;
+        for (int i = 0; i < chars.length; i++) {
+            state = state * 1664525 + 1013904223;
+            chars[i] ^= (char) (state >>> 16);
+        }
+        String literal = new String(chars);
+        boolean constantReceiver = (flags & 1) != 0;
+        if ((flags & 2) != 0) {
+            return constantReceiver
+                    ? literal.equalsIgnoreCase((String) dynamicOperand)
+                    : ((String) dynamicOperand).equalsIgnoreCase(literal);
+        }
+        return constantReceiver
+                ? literal.equals(dynamicOperand)
+                : ((String) dynamicOperand).equals(literal);
+    }
+
     public static String hash(String s) {
         return LongHashFunction.xx3().hashChars(s) + "";
     }

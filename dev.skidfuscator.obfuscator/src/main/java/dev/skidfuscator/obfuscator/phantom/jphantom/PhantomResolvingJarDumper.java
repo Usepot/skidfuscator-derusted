@@ -54,43 +54,19 @@ public class PhantomResolvingJarDumper implements JarDumper {
 	 */
 	@Override
 	public void dump(File file) throws IOException {
-		if (file.exists())
-			file.delete();
-		file.createNewFile();
-		final JarOutputStream jos = new JarOutputStream(new FileOutputStream(file));
-		int classesDumped = 0;
-		int resourcesDumped = 0;
-
-
-		try (ProgressWrapper progressBar = ProgressUtil.progressCheck(
+		try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(file));
+		     ProgressWrapper progress = ProgressUtil.progressCheck(
 				contents.getClassContents().size() + contents.getResourceContents().size(),
-			 "Outputting " + contents.getClassContents().size() + " classes to " + file.getPath()
-		)) {
-			for (JarClassData cn : new LinkedList<>(contents.getClassContents())) {
-				try {
-					classesDumped += dumpClass(jos, cn);
-				} catch (ZipException e) {
-					System.out.println("\r[!] Failed to dump " + cn.getName() + "!\n");
-					throw e;
-				}
-
-				//contents.getClassContents().remove(cn);
-				jos.flush();
-				progressBar.tick();
+				"Outputting " + contents.getClassContents().size() + " classes to " + file.getPath())) {
+			for (JarClassData data : new LinkedList<>(contents.getClassContents())) {
+				dumpClass(jos, data);
+				progress.tick();
 			}
-
-			for (JarResource res : new LinkedList<>(contents.getResourceContents())) {
-				resourcesDumped += dumpResource(jos, res.getName(), res.getData());
-
-				//contents.getResourceContents().remove(res);
-				progressBar.tick();
+			for (JarResource resource : new LinkedList<>(contents.getResourceContents())) {
+				dumpResource(jos, resource.getName(), resource.getData());
+				progress.tick();
 			}
 		}
-
-		//if(!Debug.debugging)
-		//	System.out.println("Dumped " + classesDumped + " classes and " + resourcesDumped + " resources to " + file.getAbsolutePath());
-		jos.flush();
-		jos.close();
 	}
 
 	/**

@@ -195,7 +195,7 @@ public class ObfuscateCommand implements Callable<Integer> {
                 .runtime(runtime)
                 .exempt(exempt)
                 .phantom(phantom)
-                .jmod(MiscUtil.getJavaVersion() > 8)
+                .jmod(isJmodRuntime(runtime))
                 .fuckit(fuckit)
                 .config(config)
                 .debug(debug)
@@ -211,6 +211,25 @@ public class ObfuscateCommand implements Callable<Integer> {
         skidfuscator.run();
 
         return 0;
+    }
+
+    /** Select the target runtime format, independently of the VM running the CLI. */
+    static boolean isJmodRuntime(final File targetRuntime) {
+        if (targetRuntime == null || !targetRuntime.canRead()) {
+            throw new IllegalArgumentException("Target runtime does not exist or is unreadable: " + targetRuntime);
+        }
+        if (targetRuntime.isDirectory()) {
+            final File[] modules = targetRuntime.listFiles(file -> file.isFile()
+                    && file.getName().toLowerCase(Locale.ROOT).endsWith(".jmod"));
+            if (modules == null || modules.length == 0) {
+                throw new IllegalArgumentException("Target runtime directory contains no .jmod files: " + targetRuntime);
+            }
+            return true;
+        }
+        if (!targetRuntime.isFile() || !targetRuntime.getName().toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            throw new IllegalArgumentException("Expected a runtime .jar or a directory of .jmod files: " + targetRuntime);
+        }
+        return false;
     }
 
     private String[] normalizeNativeTargets(String[] targets) {

@@ -177,6 +177,11 @@ public final class ToolchainManifestVerifier {
         }
     }
 
+    /** Canonical lowercase SHA-256 text used by signed archive and tree metadata. */
+    public static boolean isSha256(final String value) {
+        return value != null && SHA_256.matcher(value).matches();
+    }
+
     @FunctionalInterface
     public interface KeyResolver {
         Optional<PublicKey> resolve(String keyId);

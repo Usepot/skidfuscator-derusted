@@ -40,6 +40,9 @@ public class MapleJarUtil {
     }
 
     public static void dumpJar(Skidfuscator skidfuscator, PassGroup masterGroup, String outputFile) throws IOException {
+        // Output-only Mixin protocol envelopes: retain transformed initializer bodies,
+        // but never send their line-marked transplant wrappers through body passes.
+        dev.skidfuscator.obfuscator.compatibility.MixinInitializerBridge.apply(skidfuscator);
         // Tamper protection materialises a cross-class integrity mesh at output time,
         // which requires buffering every class's final bytes before stamping (a target
         // must be frozen before the holder that hashes it). It needs the SDK helper to
@@ -76,142 +79,31 @@ public class MapleJarUtil {
 
             @Override
             public int dumpClass(JarOutputStream out, JarClassData classData) throws IOException {
-                ClassNode cn = classData.getClassNode();
+                final ClassNode cn = classData.getClassNode();
                 for (org.objectweb.asm.tree.MethodNode method : cn.node.methods) {
                     method.localVariables = null;
                 }
-
-                String path = classData.getName();
+                final boolean exempt = !cn.isVirtual() && skidfuscator.getExemptAnalysis().isExempt(cn);
+                final byte[] bytes;
+                try {
+                    final int flags = exempt ? 0 : (SkidFlowGraphDumper.TEST_COMPUTE
+                            ? ClassWriter.COMPUTE_MAXS : ClassWriter.COMPUTE_FRAMES);
+                    final ClassWriter writer = buildClassWriter(skidfuscator.getClassSource().getClassTree(), flags);
+                    cn.node.accept(new ClassRemapper(writer, skidfuscator.getClassRemapper()));
+                    bytes = writer.toByteArray();
+                } catch (Exception failure) {
+                    // Original-class/MAXS fallbacks are not safe after cross-class rewrites.
+                    throw new IOException("Unable to serialize transformed class " + cn.getName()
+                            + "; refusing to publish partial or unverified bytecode", failure);
+                }
+                String path = new org.objectweb.asm.ClassReader(bytes).getClassName() + ".class";
                 if (skidfuscator.getConfig().getBoolean("fileCrasher.enabled", false)) {
                     path += "/";
                 }
-
-                JarEntry entry = new JarEntry(path);
-                ClassTree tree = skidfuscator.getClassSource().getClassTree();
-
-                //Skidfuscator.LOGGER.post("Writing " + entry.getName());
-
-                if (!cn.isVirtual() && skidfuscator.getExemptAnalysis().isExempt(cn)) {
-                    final JarClassData resource = jarClassDataMap.get(classData.getName());
-
-                    if (resource == null) {
-                        throw new IllegalStateException("Failed to find class source for " + cn.getName());
-                    }
-                    out.putNextEntry(entry);
-
-                    ClassWriter writer = this.buildClassWriter(
-                            tree,
-                            0
-                    );
-                    ClassRemapper remapper = new ClassRemapper(
-                            writer,
-                            skidfuscator.getClassRemapper()
-                    );
-                    cn.node.accept(remapper);
-                    out.write(writer.toByteArray());
-
-                    //out.write(resource.getData());
-                    return 1;
-                }
-
-
-                /*for (MethodNode m : cn.getMethods()) {
-                    if (m.node.instructions.size() > 10000) {
-                        Skidfuscator.LOGGER.warn("large method: " + m + " @" + m.node.instructions.size() + "\n");
-                    }
-                }*/
-
-                try {
-                    final String name = skidfuscator.getClassRemapper()
-                            .mapOrDefault(Type.getObjectType(classData.getName()
-                                    .replace(".class", "")
-                                    .replace(".", "/")).getInternalName());
-
-                    path = name.replace(".", "/") + ".class";
-
-                    if (skidfuscator.getConfig().getBoolean("fileCrasher.enabled", false)) {
-                        path += "/";
-                    }
-
-                    entry = new JarEntry(path);
-                    out.putNextEntry(entry);
-                    //Skidfuscator.LOGGER.post("Wrote " + entry.getName());
-                    try {
-                        ClassWriter writer = this.buildClassWriter(
-                                tree,
-                                SkidFlowGraphDumper.TEST_COMPUTE
-                                    ? ClassWriter.COMPUTE_MAXS
-                                    : ClassWriter.COMPUTE_FRAMES
-                        );
-                        ClassRemapper remapper = new ClassRemapper(writer, skidfuscator.getClassRemapper());
-                        cn.node.accept(remapper);
-                        cn.node = factory.create(writer.toByteArray(), cn.getName()).node;
-                        out.write(writer.toByteArray());
-                    } catch (MethodTooLargeException e) {
-                        // [Failsafe] Try to output but still remap
-                        // TODO: make prettier
-                        final JarClassData resource = jarClassDataMap.get(classData.getName());
-
-                        if (resource == null) {
-                            throw new IllegalStateException("Failed to find class source for " + cn.getName());
-                        }
-
-                        ClassWriter writer = this.buildClassWriter(
-                                tree,
-                                0
-                        );
-                        ClassRemapper remapper = new ClassRemapper(
-                                writer,
-                                skidfuscator.getClassRemapper()
-                        );
-                        cn.node.accept(remapper);
-
-                        try {
-                            out.write(writer.toByteArray());
-                            Skidfuscator.LOGGER.warn(
-                                    "\r❗ Failed to write " + cn.getName() + " because the computed method was too large! Skipping class...\n"
-                            );
-                        } catch (Exception ex) {
-                            if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
-                                throw new IOException(
-                                        "Native output cannot fall back to the original bytes for " + cn.getName(),
-                                        ex
-                                );
-                            }
-                            // [Failsafe] Everything else failed, just write the resource
-                            out.write(resource.getData());
-                            Skidfuscator.LOGGER.warn(
-                                    "\r❗ Failed to write " + cn.getName() + "! Input method already exceeded max size. This MAY cause issues!\n"
-                            );
-                        }
-                    } catch (Exception var8) {
-                        if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
-                            throw new IOException(
-                                    "Native output class serialization failed for " + cn.getName(), var8);
-                        }
-                        ClassWriter writer = this.buildClassWriter(tree, ClassWriter.COMPUTE_MAXS);
-                        cn.node.accept(writer);
-                        out.write(writer.toByteArray());
-                        var8.printStackTrace();
-
-                        Skidfuscator.LOGGER.error(
-                                "\rFailed to write " + cn.getName() + "! Writing with COMPUTE_MAXS, which may cause runtime abnormalities\n",
-                                var8
-                        );
-                    }
-                } catch (Exception var9) {
-                    if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
-                        if (var9 instanceof IOException ioException) {
-                            throw ioException;
-                        }
-                        throw new IOException(
-                                "Native output class publication failed for " + cn.getName(), var9);
-                    }
-                    Skidfuscator.LOGGER.error(
-                            "\rFailed to write " + cn.getName() + "! Skipping class...\n",
-                            var9
-                    );
-                }
+                // Serialize before opening an entry, so a failure cannot create an empty class.
+                out.putNextEntry(new JarEntry(path));
+                out.write(bytes);
+                out.closeEntry();
                 return 1;
             }
         }).dump(new File(outputFile));

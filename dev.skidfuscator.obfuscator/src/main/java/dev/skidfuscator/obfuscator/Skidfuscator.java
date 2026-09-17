@@ -147,6 +147,25 @@ public class Skidfuscator {
     private final SkidRemapper classRemapper = new SkidRemapper(new HashMap<>());
     private final DependencyDownloader dependencyDownloader = new DependencyDownloader();
 
+    private dev.skidfuscator.obfuscator.compatibility.RuntimeContractRegistry runtimeContracts;
+
+    /** ABI constraints are deliberately not body exemptions. */
+    public boolean isRuntimeContract(final org.objectweb.asm.tree.MethodNode method) {
+        return runtimeContracts != null && runtimeContracts.isMethodContract(method);
+    }
+
+    public boolean isRuntimeContract(final MethodNode method) {
+        return method != null && isRuntimeContract(method.node);
+    }
+
+    public boolean isRuntimeFieldContract(final org.objectweb.asm.tree.FieldNode field) {
+        return runtimeContracts != null && runtimeContracts.isFieldContract(field);
+    }
+
+    public boolean isAnnotationElementContract(final String descriptor, final String element) {
+        return runtimeContracts != null && runtimeContracts.isAnnotationElementContract(descriptor, element);
+    }
+
     private final Counter counter = new Counter();
     private NativeCompilationPlan nativeCompilationPlan = new NativeCompilationPlan(List.of(), List.of());
     private final Set<String> nativeReferencedMembers = new HashSet<>();
@@ -298,6 +317,12 @@ public class Skidfuscator {
             EventBus.register(protectionProvider);
         }
 
+        // Capture original member and metadata identities before hierarchy/seed
+        // threading or any late descriptor-changing transformation can alter them.
+        this.runtimeContracts = dev.skidfuscator.obfuscator.compatibility.RuntimeContractRegistry.capture(this);
+        final dev.skidfuscator.obfuscator.compatibility.BootstrapRuntimeContracts bootstrapContracts =
+                dev.skidfuscator.obfuscator.compatibility.BootstrapRuntimeContracts.capture(this);
+
         /* Resolve hierarchy */
         LOGGER.post("Resolving hierarchy (this could take a while)...");
         this.hierarchy = new SkidHierarchy(this);
@@ -386,23 +411,15 @@ public class Skidfuscator {
                 try {
                     cfg.recomputeEdges();
                 } catch (RuntimeException ex) {
-                    LOGGER.warn(
-                            "Skipping final CFG edge recomputation for "
-                                    + mn.getOwner() + "#"
-                                    + mn.getName() + mn.getDesc()
-                                    + ": " + ex.getMessage()
-                    );
+                    throw new IllegalStateException("CFG edge recomputation failed for "
+                            + mn.getOwner() + "#" + mn.getName() + mn.getDesc(), ex);
                 }
 
                 try {
                     mn.dump();
                 } catch (RuntimeException ex) {
-                    LOGGER.warn(
-                            "Skipping final CFG dump for "
-                                    + mn.getOwner() + "#"
-                                    + mn.getName() + mn.getDesc()
-                                    + ": " + ex.getMessage()
-                    );
+                    throw new IllegalStateException("CFG dump failed for "
+                            + mn.getOwner() + "#" + mn.getName() + mn.getDesc(), ex);
                 }
                 progressBar.tick();
             }
@@ -427,6 +444,7 @@ public class Skidfuscator {
          * event-less transformers, so the EventBus never invokes them — they
          * must be called explicitly here.
          */
+        dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "After CFG");
         final StringAnnotationEncryptionTransformer stringAnnotationEncryption = transformers.stream()
                 .filter(StringAnnotationEncryptionTransformer.class::isInstance)
                 .map(StringAnnotationEncryptionTransformer.class::cast)
@@ -435,6 +453,7 @@ public class Skidfuscator {
         if (stringAnnotationEncryption != null) {
             LOGGER.post("Running late pass [String Annotation Encryption]...");
             stringAnnotationEncryption.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "stringAnnotationEncryption");
             LOGGER.log(stringAnnotationEncryption.getResult());
         }
 
@@ -446,6 +465,7 @@ public class Skidfuscator {
         if (intAnnotationEncryption != null) {
             LOGGER.post("Running late pass [Int Annotation Encryption]...");
             intAnnotationEncryption.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "intAnnotationEncryption");
             LOGGER.log(intAnnotationEncryption.getResult());
         }
 
@@ -460,6 +480,7 @@ public class Skidfuscator {
         if (methodMerge.isEnabled()) {
             LOGGER.post("Running late pass [Method Merge]...");
             methodMerge.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "methodMerge");
             LOGGER.log(methodMerge.getResult());
         }
 
@@ -473,6 +494,7 @@ public class Skidfuscator {
         if (signatureObfuscation.isEnabled()) {
             LOGGER.post("Running late pass [Signature Obfuscation]...");
             signatureObfuscation.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "signatureObfuscation");
             LOGGER.log(signatureObfuscation.getResult());
         }
 
@@ -489,6 +511,7 @@ public class Skidfuscator {
         if (methodDispatch.isEnabled()) {
             LOGGER.post("Running late pass [Method Dispatch]...");
             methodDispatch.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "methodDispatch");
             LOGGER.log(methodDispatch.getResult());
         }
 
@@ -499,16 +522,35 @@ public class Skidfuscator {
             }
             LOGGER.post("Running late pass [Outliner]...");
             outliner.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "outliner");
             LOGGER.log(outliner.getResult());
         }
+
+        dev.skidfuscator.obfuscator.util.NumericConstantSpiller.apply(this);
 
         final InvokeDynamicMethodTransformer methodCallObfuscation =
                 new InvokeDynamicMethodTransformer(this);
         if (methodCallObfuscation.isEnabled()) {
             LOGGER.post("Running late pass [Method Call Obfuscation]...");
             methodCallObfuscation.apply();
+            dev.skidfuscator.obfuscator.util.ClassSizeDiagnostics.report(this, "methodCallObfuscation");
             LOGGER.log(methodCallObfuscation.getResult());
         }
+
+        // Old Mixin descriptor rewriting cannot interpret primitive-array
+        // TypeInsn operands. Preserve those operations in typed companions,
+        // not by exempting the hook body from the preceding transformations.
+        dev.skidfuscator.obfuscator.compatibility.MixinPrimitiveArrayBridge.apply(this);
+
+        // Known linkage/metadata breakage is an output error, never a warning
+        // followed by publishing a client that will fail at runtime.
+        if (runtimeContracts != null) runtimeContracts.validate();
+
+        // All generated helpers, including late Mixin companions, now exist.
+        // Isolate only these helpers from Forge's load-time transformer chain;
+        // otherwise loading one from an obfuscated IClassTransformer re-enters it.
+        bootstrapContracts.install(this);
+        dev.skidfuscator.obfuscator.compatibility.LegacyAsmBranchGuard.apply(this);
 
         _cleanup();
 
@@ -1113,37 +1155,23 @@ public class Skidfuscator {
 
     protected void _dump() {
         LOGGER.post("Dumping jar...");
-        Path stagedNativeOutput = null;
+        Path stagedOutput = null;
         try {
-            final String outputPath;
-            if (config != null && config.getNativeConfig().isEnabled()) {
-                final Path destination = session.getOutput().toPath().toAbsolutePath().normalize();
-                final Path parent = destination.getParent();
-                if (parent == null) {
-                    throw new IOException("Native output jar has no parent directory: " + destination);
-                }
-                Files.createDirectories(parent);
-                stagedNativeOutput = Files.createTempFile(
-                        parent, "." + destination.getFileName() + ".", ".staged.jar");
-                outputPath = stagedNativeOutput.toString();
-            } else {
-                outputPath = session.getOutput().getPath();
+            final Path destination = session.getOutput().toPath().toAbsolutePath().normalize();
+            final Path parent = destination.getParent();
+            if (parent == null) {
+                throw new IOException("Output jar has no parent directory: " + destination);
             }
-            MapleJarUtil.dumpJar(
-                    this,
-                    new PassGroup("Output"),
-                    outputPath
-            );
-            if (stagedNativeOutput != null) {
-                final Path destination = session.getOutput().toPath().toAbsolutePath().normalize();
-                Files.move(stagedNativeOutput, destination,
-                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-                stagedNativeOutput = null;
-            }
+            Files.createDirectories(parent);
+            stagedOutput = Files.createTempFile(parent, "." + destination.getFileName() + ".", ".staged.jar");
+            MapleJarUtil.dumpJar(this, new PassGroup("Output"), stagedOutput.toString());
+            Files.move(stagedOutput, destination,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            stagedOutput = null;
         } catch (Exception e) {
-            if (stagedNativeOutput != null) {
+            if (stagedOutput != null) {
                 try {
-                    Files.deleteIfExists(stagedNativeOutput);
+                    Files.deleteIfExists(stagedOutput);
                 } catch (IOException cleanupFailure) {
                     e.addSuppressed(cleanupFailure);
                 }
@@ -1152,7 +1180,7 @@ public class Skidfuscator {
                 throw new NativeBackendUnavailableException(
                         "Native output jar publication failed atomically; platform artifacts were not published", e);
             }
-            e.printStackTrace();
+            throw new IllegalStateException("Output jar publication failed; previous artifact preserved", e);
         }
         LOGGER.log("Finished dumping jar...");
     }
@@ -1324,13 +1352,9 @@ public class Skidfuscator {
                     try {
                         methodNode.getCfg().recomputeEdges();
                     } catch (RuntimeException e) {
-                        LOGGER.warn(
-                                "Skipping CFG edge recomputation for "
-                                        + methodNode.getOwner() + "#"
-                                        + methodNode.getName() + methodNode.getDesc()
-                                        + ": " + e.getMessage()
-                        );
-                    }
+                    throw new IllegalStateException("CFG edge recomputation failed for "
+                            + methodNode.getOwner() + "#" + methodNode.getName() + methodNode.getDesc(), e);
+                }
                     progressBar.tick();
                 }
             }

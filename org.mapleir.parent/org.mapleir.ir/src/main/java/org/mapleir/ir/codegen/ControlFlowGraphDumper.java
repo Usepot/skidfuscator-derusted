@@ -262,17 +262,6 @@ public class ControlFlowGraphDumper implements BytecodeFrontend {
 	}
 
 	private void dumpRange(ExceptionRange<BasicBlock> er) {
-		// Determine exception type
-		Type type;
-		Set<Type> typeSet = er.getTypes();
-		if (typeSet.size() != 1) {
-			// TODO: find base exception
-			type = TypeUtils.THROWABLE;
-			System.err.println("[fatal] No compatible exception at " + m + " : " + Arrays.toString(typeSet.toArray()));
-		} else {
-			type = typeSet.iterator().next();
-		}
-		
 		final Label handler = getLabel(er.getHandler());
 		List<BasicBlock> range = new ArrayList<>(er.getNodes());
 		range.sort(Comparator.comparing(order::indexOf));
@@ -292,11 +281,11 @@ public class ControlFlowGraphDumper implements BytecodeFrontend {
 		for (;;) {
 			// check for endpoints
 			if (orderIdx + 1 == order.size()) { // end of method
-				m.node.visitTryCatchBlock(start, terminalLabel.getLabel(), handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, terminalLabel.getLabel(), handler, er.getTypes());
 				break;
 			} else if (rangeIdx + 1 == range.size()) { // end of range
 				Label end = getLabel(order.get(orderIdx + 1));
-				m.node.visitTryCatchBlock(start, end, handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, end, handler, er.getTypes());
 				break;
 			}
 			
@@ -306,7 +295,7 @@ public class ControlFlowGraphDumper implements BytecodeFrontend {
 			if (nextOrderIdx - orderIdx > 1) { // blocks in-between, end the handler and begin anew
 				//System.err.println("[warn] Had to split up a range: " + m);
 				Label end = getLabel(order.get(orderIdx + 1));
-				m.node.visitTryCatchBlock(start, end, handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, end, handler, er.getTypes());
 				start = getLabel(nextBlock);
 			}
 

@@ -1750,7 +1750,10 @@ public class GenerationPass extends ControlFlowGraphBuilder.BuilderPass {
 //		DotWriter<ControlFlowGraph, BasicBlock, FlowEdge<BasicBlock>> writer = new DotWriter<>(config, builder.graph);
 //		writer.removeAll().add(new ControlFlowGraphDecorator().setFlags(ControlFlowGraphDecorator.OPT_DEEP)).setName("test9999").export();
 		
-		Map<String, ExceptionRange<BasicBlock>> ranges = new HashMap<>();
+		// Only adjacent entries may share a range: merging across another
+		// handler would move a later catch ahead of it in the exception table.
+		String previousKey = null;
+		ExceptionRange<BasicBlock> previousRange = null;
 		for(TryCatchBlockNode tc : builder.method.node.tryCatchBlocks) {
 			//System.out.printf("from %d to %d, handler:%d, type:%s.%n", insns.indexOf(tc.start), insns.indexOf(tc.end), insns.indexOf(tc.handler), tc.type);
 			//System.out.println(String.format("%s:%s:%s", blockLabels.get(tc.start), blockLabels.get(tc.end), blockLabels.get(tc.handler)));
@@ -1767,13 +1770,14 @@ public class GenerationPass extends ControlFlowGraphBuilder.BuilderPass {
 			String key = String.format("%d:%d:%s", start, end, order.indexOf(handler));
 			
 			ExceptionRange<BasicBlock> erange;
-			if(ranges.containsKey(key)) {
-				erange = ranges.get(key);
+			if(key.equals(previousKey)) {
+				erange = previousRange;
 			} else {
 				erange = new ExceptionRange<>();
 				erange.setHandler(handler);
 				erange.addVertices(range);
-				ranges.put(key, erange);
+				previousKey = key;
+				previousRange = erange;
 				
 				if(!isContiguous(erange, order)) {
 					System.out.println(erange + " not contiguous");

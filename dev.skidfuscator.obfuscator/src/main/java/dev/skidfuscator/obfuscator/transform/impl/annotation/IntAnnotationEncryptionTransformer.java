@@ -32,7 +32,8 @@ import java.util.List;
  * deterministic remap of scalar {@code int} values plus call-site decryption for
  * application bytecode that invokes the matching annotation accessor. External
  * frameworks or untransformed code that inspect the annotation directly will see
- * the remapped integer, so those annotations/classes should be exempted.</p>
+ * the remapped integer. Their element values are therefore preserved by the
+ * runtime contract registry; their declaring class bodies need not be exempted.</p>
  */
 public class IntAnnotationEncryptionTransformer extends AbstractTransformer {
     private static final int FNV_OFFSET = 0x811C9DC5;
@@ -103,6 +104,8 @@ public class IntAnnotationEncryptionTransformer extends AbstractTransformer {
 
         final String annotationDesc = 'L' + classNode.name + ';';
         for (MethodNode method : classNode.methods) {
+            if (FrameworkAnnotations.isStructural(annotationDesc)
+                    || skidfuscator.isAnnotationElementContract(annotationDesc, method.name)) continue;
             if (!"()I".equals(method.desc) || !(method.annotationDefault instanceof Integer)) {
                 continue;
             }
@@ -166,6 +169,7 @@ public class IntAnnotationEncryptionTransformer extends AbstractTransformer {
             }
 
             final String elementName = (String) rawName;
+            if (skidfuscator.isAnnotationElementContract(annotation.desc, elementName)) continue;
             final Object value = annotation.values.get(i + 1);
             if (value instanceof Integer && isScalarIntElement(annotation.desc, elementName)) {
                 annotation.values.set(i + 1, remap((Integer) value, annotation.desc, elementName));
@@ -273,7 +277,9 @@ public class IntAnnotationEncryptionTransformer extends AbstractTransformer {
     }
 
     private boolean isAnnotationOwner(final String owner, final String elementName) {
-        if (owner == null || owner.startsWith("[")) {
+        if (owner == null || owner.startsWith("[")
+                || FrameworkAnnotations.isStructural('L' + owner + ';')
+                || skidfuscator.isAnnotationElementContract('L' + owner + ';', elementName)) {
             return false;
         }
         final MethodNode element = resolveAnnotationElement('L' + owner + ';', elementName);

@@ -383,6 +383,9 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                                      final boolean obfuscateArgs,
                                      final boolean obfuscateReturns,
                                      final boolean threadReturnKey) {
+        // Internal callers do not prove the absence of reflection/framework callers.
+        // Keep the callable ABI while all body-level transformations remain active.
+        if (skidfuscator.isRuntimeContract(method)) return null;
         if (!internalCallCounts.containsKey(key)) {
             return null;
         }

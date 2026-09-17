@@ -548,7 +548,8 @@ public class VmHashTransformer implements HashTransformer {
             methodMatches.put(javaMethod, matches);
         });
 
-        //System.out.println("Method matches: " + methodMatches.size());
+        Skidfuscator.LOGGER.warn("VM_HASH_BOOTSTRAP_TARGETS: " + methodMatches.size()
+                + " stable Java 8 numeric methods; application bodies remain eligible for all passes.");
 
         final InstanceClass vmExceptionKlass = helper.loadClass("java.lang.Throwable");
         printStackTrace = vmExceptionKlass.getMethod("printStackTrace", "()V");
@@ -557,6 +558,7 @@ public class VmHashTransformer implements HashTransformer {
     private final Map<JavaMethod, Set<ParameterMatch>> methodMatches = new HashMap<>();
 
     private boolean isCandidate(final org.mapleir.asm.MethodNode method) {
+        if (!VmHashTargetPolicy.permits(method)) return false;
         if (!method.isStatic() || method.isClinit() || method.isInit() || method.isAbstract() || method.isNative() || !method.isPublic())
             return false;
 
@@ -581,7 +583,7 @@ public class VmHashTransformer implements HashTransformer {
         // so wide types (long/double) must advance by one, not by getSize().
         int index = 0;
         for (Type type : types) {
-            if (type.getSort() == Type.INT) {
+            if (type.getSort() == Type.INT && VmHashTargetPolicy.permitsParameter(method, index)) {
                 matches.add(new ParameterMatch(index, type));
             }
 

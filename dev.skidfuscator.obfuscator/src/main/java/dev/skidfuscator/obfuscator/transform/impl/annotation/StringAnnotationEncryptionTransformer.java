@@ -98,7 +98,9 @@ public class StringAnnotationEncryptionTransformer extends AbstractTransformer {
                 continue;
             }
 
-            if (method.node.annotationDefault != null) {
+            if (method.node.annotationDefault != null
+                    && !FrameworkAnnotations.isStructural("L" + classNode.getName() + ";")
+                    && !skidfuscator.isAnnotationElementContract("L" + classNode.getName() + ";", method.getName())) {
                 method.node.annotationDefault = transformValue(method.node.annotationDefault, null);
             }
 
@@ -172,6 +174,8 @@ public class StringAnnotationEncryptionTransformer extends AbstractTransformer {
 
         boolean changed = false;
         for (int i = 1; i < annotation.values.size(); i += 2) {
+            final String element = (String) annotation.values.get(i - 1);
+            if (skidfuscator.isAnnotationElementContract(annotation.desc, element)) continue;
             final Object original = annotation.values.get(i);
             final Object transformed = transformValue(original, annotation.desc);
 
@@ -287,6 +291,8 @@ public class StringAnnotationEncryptionTransformer extends AbstractTransformer {
     }
 
     private boolean isAnnotationAccessor(final MethodInsnNode call) {
+        if (FrameworkAnnotations.isStructural("L" + call.owner + ";")
+                || skidfuscator.isAnnotationElementContract("L" + call.owner + ";", call.name)) return false;
         if (call.getOpcode() != Opcodes.INVOKEINTERFACE && call.getOpcode() != Opcodes.INVOKEVIRTUAL) {
             return false;
         }

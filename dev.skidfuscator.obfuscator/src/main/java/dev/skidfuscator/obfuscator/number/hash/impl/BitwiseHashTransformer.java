@@ -34,20 +34,13 @@ public class BitwiseHashTransformer implements HashTransformer {
 
         final SkidControlFlowGraph cfg = methodNode.getCfg();
 
-        final Expr const7 = new ConstantExpr(7, Type.INT_TYPE);
-        final Expr const29a = new ConstantExpr(29, Type.INT_TYPE);
-        final Expr shifted7to29 = new FakeArithmeticExpr(const7, const29a, ArithmeticExpr.Operator.SHL);
-
-        // (starting & (7 << 29))
-        final Expr shiftedvartoshift = new FakeArithmeticExpr(
+        // Rotate left by three: the logical shift preserves the upper bits
+        // without sign extension, making this a permutation of all int values.
+        final Expr shiftedHashTto29 = new FakeArithmeticExpr(
                 new VarExpr(cfg.getLocals().get(0), Type.INT_TYPE),
-                shifted7to29,
-                ArithmeticExpr.Operator.AND
+                new ConstantExpr(29, Type.INT_TYPE),
+                ArithmeticExpr.Operator.USHR
         );
-
-        // (starting & (7 << 29)) >> 29)
-        final Expr const29b = new ConstantExpr(29, Type.INT_TYPE);
-        final Expr shiftedHashTto29 = new FakeArithmeticExpr(shiftedvartoshift, const29b, ArithmeticExpr.Operator.SHR);
 
         // (starting << 3)
         final Expr const3 = new ConstantExpr(3, Type.INT_TYPE);
@@ -57,7 +50,7 @@ public class BitwiseHashTransformer implements HashTransformer {
                 ArithmeticExpr.Operator.SHL
         );
 
-        // ((starting & (7 << 29)) >> 29) | (starting << 3);
+        // (starting >>> 29) | (starting << 3);
         final Expr hash = new FakeArithmeticExpr(shiftedHashTto29, shiftedStartTo3, ArithmeticExpr.Operator.OR);
 
         methodNode.getCfg().getEntry().add(new ReturnStmt(
@@ -76,7 +69,7 @@ public class BitwiseHashTransformer implements HashTransformer {
 
     @Override
     public int hash(int starting) {
-        return ((starting & (7 << 29)) >> 29) | (starting << 3);
+        return Integer.rotateLeft(starting, 3);
     }
 
     @Override

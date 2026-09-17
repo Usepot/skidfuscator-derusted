@@ -158,7 +158,7 @@ public class MethodMergeTransformer extends AbstractTransformer {
         if (wrapper == null || wrapper.node == null || wrapper.owner == null || wrapper.owner.node == null) {
             return null;
         }
-        if (skidfuscator.isNativeCandidate(wrapper)) {
+        if (skidfuscator.isNativeCandidate(wrapper) || skidfuscator.isRuntimeContract(wrapper)) {
             return null;
         }
         if (skidfuscator.isNativeReferencedMember(

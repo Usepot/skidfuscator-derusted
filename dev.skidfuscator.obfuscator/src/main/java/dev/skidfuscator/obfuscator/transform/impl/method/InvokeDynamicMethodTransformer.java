@@ -1,12 +1,15 @@
 package dev.skidfuscator.obfuscator.transform.impl.method;
 
 import dev.skidfuscator.obfuscator.Skidfuscator;
+import dev.skidfuscator.obfuscator.compatibility.RelocatableInvokeDynamic;
+import dev.skidfuscator.obfuscator.util.ConstantPoolBudget;
 import dev.skidfuscator.obfuscator.skidasm.SkidGroup;
 import dev.skidfuscator.obfuscator.transform.AbstractTransformer;
 import org.mapleir.asm.ClassNode;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.commons.CodeSizeEvaluator;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.IincInsnNode;
@@ -83,6 +86,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
 
     public void apply() {
         final Map<String, org.objectweb.asm.tree.ClassNode> classes = loadApplicationClasses();
+        final Set<String> mixinRelocationOwners = RelocatableInvokeDynamic.relocationFamily(classes.values());
         final Map<String, SkidGroup> threadedGroups = buildThreadedGroupMap();
 
         for (JarClassData classData : skidfuscator.getJarContents().getClassContents()) {
@@ -98,6 +102,19 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
             }
 
             final org.objectweb.asm.tree.ClassNode classNode = wrapper.node;
+            final boolean interfaceOwner = (classNode.access & Opcodes.ACC_INTERFACE) != 0;
+            // Never upgrade the input version just to introduce indy/helpers.
+            if ((classNode.version & 0xFFFF) < (interfaceOwner ? Opcodes.V1_8 : Opcodes.V1_7)) {
+                skip();
+                continue;
+            }
+            // Reserve bootstrap helpers plus a conservative upper bound for each
+            // unique encrypted owner/name/descriptor/bootstrap tuple.
+            final int siteBudget = ConstantPoolBudget.allowance(ConstantPoolBudget.count(classNode), 1024, 16);
+            final RelocatableInvokeDynamic relocatable = new RelocatableInvokeDynamic(classNode);
+            int symbolicSites = 0;
+            int transformedSites = 0;
+            int budgetLimitedSites = 0;
             final Integer[] keys = createKeys();
             final boolean wide = skidfuscator.getConfig().isSeedWide();
             final String decryptDesc = wide ? DECRYPT_DESC_WIDE : DECRYPT_DESC;
@@ -111,7 +128,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                     classNode.name,
                     bootstrapName,
                     BOOTSTRAP_DESC,
-                    false
+                    interfaceOwner
             );
 
             final String seedBootstrapName = uniqueMethodName(classNode, "skid$bootseed$", BOOTSTRAP_SEED_DESC);
@@ -121,7 +138,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                     classNode.name,
                     seedBootstrapName,
                     BOOTSTRAP_SEED_DESC,
-                    false
+                    interfaceOwner
             );
 
             boolean usedStatic = false;
@@ -137,7 +154,10 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                     continue;
                 }
 
+                final MethodGrowthBudget growthBudget = new MethodGrowthBudget(method);
+                int instructionIndex = -1;
                 for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; ) {
+                    instructionIndex++;
                     final AbstractInsnNode next = insn.getNext();
 
                     if (!(insn instanceof MethodInsnNode)) {
@@ -146,7 +166,7 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                     }
 
                     final MethodInsnNode methodInsn = (MethodInsnNode) insn;
-                    if (!isEligible(methodInsn)) {
+                    if (!isEligible(methodInsn) || methodInsn.owner.startsWith("skid/constant/")) {
                         skip();
                         insn = next;
                         continue;
@@ -164,6 +184,31 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                      * remap a Class constant for us, but it cannot touch an
                      * encrypted string, so we bake the renamed name here.
                      */
+                    if (transformedSites >= siteBudget) {
+                        budgetLimitedSites++;
+                        skip();
+                        insn = next;
+                        continue;
+                    }
+                    if (!growthBudget.reserve(methodInsn)) {
+                        Skidfuscator.LOGGER.warn("INDY_CODE_BUDGET " + classNode.name + "."
+                                + method.name + method.desc + " instruction=" + instructionIndex
+                                + " opcode=" + methodInsn.getOpcode() + " target=" + methodInsn.owner
+                                + "." + methodInsn.name + methodInsn.desc
+                                + " maxCodeSize=" + growthBudget.maxCodeSize + "; guardedSites=1");
+                        skip();
+                        insn = next;
+                        continue;
+                    }
+                    if (mixinRelocationOwners.contains(classNode.name)
+                            || RelocatableInvokeDynamic.requiresSymbolicLinkage(classNode, methodInsn)) {
+                        method.instructions.set(methodInsn, relocatable.rewrite(methodInsn, buildCallSiteDesc(methodInsn)));
+                        transformedSites++;
+                        symbolicSites++;
+                        success();
+                        insn = next;
+                        continue;
+                    }
                     final String mappedOwner = skidfuscator.getClassRemapper().map(methodInsn.owner);
                     final String ownerBinaryName =
                             (mappedOwner != null ? mappedOwner : methodInsn.owner).replace('/', '.');
@@ -208,25 +253,68 @@ public class InvokeDynamicMethodTransformer extends AbstractTransformer {
                         usedStatic = true;
                     }
                     method.instructions.set(methodInsn, indy);
+                    transformedSites++;
                     success();
                     insn = next;
                 }
             }
 
+            if (symbolicSites != 0) {
+                Skidfuscator.LOGGER.warn("INDY_SYMBOLIC_LINKAGE " + classNode.name + " sites=" + symbolicSites
+                        + "; typed handles preserve Mixin relocation and public array-clone semantics; bodies remain transformed");
+            }
+            if (budgetLimitedSites != 0) {
+                Skidfuscator.LOGGER.warn("INDY_CONSTANT_BUDGET " + classNode.name
+                        + " transformedSites=" + transformedSites + "; guardedSites=" + budgetLimitedSites);
+            }
             if (usedStatic || usedSeed) {
-                if (classNode.version < Opcodes.V1_7) {
-                    classNode.version = Opcodes.V1_7;
-                }
-                classNode.methods.add(createDeriveKeyMethod(deriveKeyName, keys, wide));
-                classNode.methods.add(createDecryptMethod(classNode.name, decryptName, deriveKeyName, keys, wide));
+                addHelper(classNode, createDeriveKeyMethod(deriveKeyName, keys, wide));
+                addHelper(classNode, createDecryptMethod(classNode.name, decryptName, deriveKeyName, keys, wide));
                 if (usedStatic) {
-                    classNode.methods.add(createBootstrapMethod(classNode.name, bootstrapName, decryptName, wide));
+                    addHelper(classNode, createBootstrapMethod(classNode.name, bootstrapName, decryptName, wide));
                 }
                 if (usedSeed) {
-                    classNode.methods.add(createSeedBootstrapMethod(classNode.name, seedBootstrapName, relinkName));
-                    classNode.methods.add(createRelinkMethod(classNode.name, relinkName, decryptName, wide));
+                    addHelper(classNode, createSeedBootstrapMethod(classNode.name, seedBootstrapName, relinkName));
+                    addHelper(classNode, createRelinkMethod(classNode.name, relinkName, decryptName, wide));
                 }
             }
+        }
+    }
+
+    /** Java 8 interfaces allow public static helpers, but not private methods. */
+    private static void addHelper(final org.objectweb.asm.tree.ClassNode owner, final MethodNode helper) {
+        if ((owner.access & Opcodes.ACC_INTERFACE) != 0) {
+            helper.access = (helper.access & ~Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC;
+            for (AbstractInsnNode insn : helper.instructions) {
+                if (insn instanceof MethodInsnNode) {
+                    final MethodInsnNode call = (MethodInsnNode) insn;
+                    if (owner.name.equals(call.owner)) {
+                        call.itf = true;
+                    }
+                }
+            }
+        }
+        owner.methods.add(helper);
+    }
+
+    private static final class MethodGrowthBudget {
+        private int maxCodeSize;
+
+        private MethodGrowthBudget(final MethodNode method) {
+            final CodeSizeEvaluator size = new CodeSizeEvaluator(null);
+            method.accept(size);
+            // Includes wide LDCs, expanded conditional/unconditional branches and
+            // maximum switch padding, even when a replacement changes alignment.
+            maxCodeSize = size.getMaxSize();
+        }
+
+        private boolean reserve(final MethodInsnNode call) {
+            final int growth = call.getOpcode() == Opcodes.INVOKEINTERFACE ? 0 : 2;
+            if ((long) maxCodeSize + growth > 65535) {
+                return false;
+            }
+            maxCodeSize += growth;
+            return true;
         }
     }
 

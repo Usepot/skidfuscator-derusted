@@ -19,6 +19,8 @@ import java.util.zip.ZipInputStream;
 /** Extracts the deliberately small ZIP/TAR toolchain archive contract without following links. */
 public final class SecureToolchainArchiveExtractor {
     public static final int DEFAULT_MAX_ENTRIES = 65_536;
+    /** Bound downloads separately from the expanded installation budget. */
+    public static final long DEFAULT_MAX_COMPRESSED_BYTES = 2L * 1024 * 1024 * 1024;
     public static final long DEFAULT_MAX_EXPANDED_BYTES = 8L * 1024 * 1024 * 1024;
     private static final int COPY_BUFFER_SIZE = 64 * 1024;
 

@@ -24,6 +24,7 @@ import org.mapleir.ir.code.expr.VarExpr;
 import org.mapleir.ir.code.stmt.*;
 import org.mapleir.ir.code.stmt.copy.CopyVarStmt;
 import org.mapleir.ir.codegen.BytecodeFrontend;
+import org.mapleir.ir.codegen.ExceptionTableEmitter;
 import org.mapleir.stdlib.collections.graph.*;
 import org.mapleir.stdlib.collections.graph.algorithms.SimpleDfs;
 import org.mapleir.stdlib.collections.graph.algorithms.TarjanSCC;
@@ -1371,7 +1372,7 @@ public class SkidFlowGraphDumper implements BytecodeFrontend {
 		 * Short term fix to prevent TryCatchNode-s from being optimized
 		 * out, leaving an open range
 		 */
-		for (ExceptionRange<BasicBlock> range : cfg.getRanges()) {
+		for (ExceptionRange<BasicBlock> range : new ArrayList<>(cfg.getRanges())) {
 			range.getNodes().stream().filter(BasicBlock::isEmpty).forEach(e -> {
 				e.add(new NopStmt());
 			});
@@ -1606,7 +1607,6 @@ public class SkidFlowGraphDumper implements BytecodeFrontend {
 
 	private void dumpRange(ExceptionRange<BasicBlock> er) {
 		// Determine exception type
-		final Type type = getRangeType(er);
 		final Label handler = getLabel(er.getHandler());
 		List<BasicBlock> range = new ArrayList<>(er.getNodes());
 		range.sort(Comparator.comparing(order::indexOf));
@@ -1627,12 +1627,12 @@ public class SkidFlowGraphDumper implements BytecodeFrontend {
 			// check for endpoints
 			if (orderIdx + 1 == order.size()) { // end of method
 				assert start != terminalLabel.getLabel() : "Label assigned is semantically identical.";
-				m.node.visitTryCatchBlock(start, terminalLabel.getLabel(), handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, terminalLabel.getLabel(), handler, er.getTypes());
 				break;
 			} else if (rangeIdx + 1 == range.size()) { // end of range
 				Label end = getLabel(order.get(orderIdx + 1));
 				assert start != end : "Label assigned is semantically identical.";
-				m.node.visitTryCatchBlock(start, end, handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, end, handler, er.getTypes());
 				break;
 			}
 			
@@ -1643,7 +1643,7 @@ public class SkidFlowGraphDumper implements BytecodeFrontend {
 				Skidfuscator.LOGGER.post("\r\n[warn] Had to split up a range: " + m + "\n");
 				Label end = getLabel(order.get(orderIdx + 1));
 				assert start != end : "Label assigned is semantically identical.";
-				m.node.visitTryCatchBlock(start, end, handler, type.getInternalName());
+				ExceptionTableEmitter.emit(m.node, start, end, handler, er.getTypes());
 				start = getLabel(nextBlock);
 			}
 

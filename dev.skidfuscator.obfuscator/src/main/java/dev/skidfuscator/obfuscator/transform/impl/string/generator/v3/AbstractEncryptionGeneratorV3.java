@@ -207,7 +207,9 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
              */
             final SkidMethodNode skidMethodNode = node
                     .createMethod()
-                    .access(ACC_PUBLIC | ACC_STATIC)
+                    // Synthetic helpers are legal public-static donor members
+                    // in old Mixin; retain public access for outlined consumers.
+                    .access(ACC_PUBLIC | ACC_STATIC | ACC_SYNTHETIC)
                     .name(methodNode.getName())
                     .desc(methodNode.getDesc())
                     .signature(methodNode.node.signature)
@@ -428,7 +430,8 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
 
     protected static <T> Expr generateArrayGenerator(final SkidClassNode node, final T[] array, final Type elementType) {
         final SkidMethodNode injector = new SkidMethodNodeBuilder(node.getSkidfuscator(), node)
-                .access(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)
+                .access(Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC
+                        | (node.isInterface() ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE))
                 .name(RandomUtil.randomAlphabeticalString(15))
                 .desc("()[" + elementType.getDescriptor())
                 .phantom(true)
@@ -493,7 +496,8 @@ public abstract class AbstractEncryptionGeneratorV3 implements EncryptionGenerat
         }
 
         final SkidMethodNode injector = new SkidMethodNodeBuilder(node.getSkidfuscator(), node)
-                .access(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)
+                .access(Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC
+                        | (node.isInterface() ? Opcodes.ACC_PUBLIC : Opcodes.ACC_PRIVATE))
                 .name(RandomUtil.randomAlphabeticalString(15))
                 .desc("()[" + elementType.getDescriptor())
                 .phantom(true)

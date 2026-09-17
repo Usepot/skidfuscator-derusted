@@ -158,17 +158,17 @@ public class SSABlockLivenessAnalyser implements Liveness<BasicBlock> {
 			GenericBitSet<Local> curIn = new GenericBitSet<>(use.get(b));
 			GenericBitSet<Local> curOut = locals.createBitSet();
 
-			// out[n] = U(s in succ[n])(in[s])
-			for (FlowEdge<BasicBlock> succEdge : cfg.getEdges(b))
-				curOut.addAll(in.get(succEdge.dst()));
-
-			// negative phi handling for defs
-			for (FlowEdge<BasicBlock> succEdge : cfg.getEdges(b))
-				curOut.removeAll(phiDef.get(succEdge.dst()));
-
-			// positive phi handling for uses, see §5.4.2 "Meaning of copy statements in Sreedhar's method"
-			for (FlowEdge<BasicBlock> succEdge : cfg.getEdges(b))
-				curOut.addAll(phiUse.get(succEdge.dst()).getNonNull(b));
+			GenericBitSet<Local> exceptionalOut = locals.createBitSet();
+			// Account for phi definitions/uses per edge, before unioning successors.
+			for (FlowEdge<BasicBlock> succEdge : cfg.getEdges(b)) {
+				BasicBlock successor = succEdge.dst();
+				GenericBitSet<Local> edgeLive = in.get(successor).relativeComplement(phiDef.get(successor));
+				edgeLive.addAll(phiUse.get(successor).getNonNull(b));
+				curOut.addAll(edgeLive);
+				if (succEdge.getType() == FlowEdges.TRYCATCH) {
+					exceptionalOut.addAll(edgeLive);
+				}
+			}
 
 			// negative phi handling for uses
 			for (FlowEdge<BasicBlock> predEdge : cfg.getReverseEdges(b))
@@ -180,6 +180,14 @@ public class SSABlockLivenessAnalyser implements Liveness<BasicBlock> {
 
 			// in[n] = use[n] U(out[n] - def[n])
 			curIn.addAll(curOut.relativeComplement(def.get(b)));
+
+			// A handler can observe the value from BEFORE a throwing assignment.
+			// In particular, x = invoke() does not define x when invoke throws.
+			// Ordinary block defs therefore cannot kill exceptional live-ins. This
+			// analysis runs before SSAGenPass splits handler-live redefinitions;
+			// treating exceptional edges as ordinary end-of-block edges here used
+			// to delete initial null values in nested catch/finally paths.
+			curIn.addAll(exceptionalOut);
 
 			in.put(b, curIn);
 			out.put(b, curOut);

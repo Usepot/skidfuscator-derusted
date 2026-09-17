@@ -43,16 +43,40 @@ public class SkidFlowGraphBuilder extends ControlFlowGraphBuilder {
     public static ControlFlowGraph build(final Skidfuscator skidfuscator, final MethodNode method) {
         ControlFlowGraphBuilder builder = new SkidFlowGraphBuilder(method, SkidBlockFactory.v(skidfuscator), skidfuscator);
         final ControlFlowGraph cfg = builder.buildImpl();
+        snapshot(method, cfg, "ssa");
         BoissinotDestructor.leaveSSA(cfg);
+        snapshot(method, cfg, "lowered");
         try {
             SkidLocalsReallocator.realloc(skidfuscator, cfg);
+            snapshot(method, cfg, "allocated");
         } catch (RuntimeException e) {
-            Skidfuscator.LOGGER.warn(
-                    "Skipping local reallocation for " + method.getOwner() + "#"
-                            + method.getName() + method.getDesc() + ": " + e.getMessage()
-            );
+            throw new IllegalStateException("Local allocation failed for " + method.getOwner() + "#"
+                    + method.getName() + method.getDesc(), e);
         }
 
         return cfg;
+    }
+
+    /** Explicit, local-only diagnostics for locating SSA/allocation regressions. */
+    private static void snapshot(MethodNode method, ControlFlowGraph graph, String phase) {
+        String prefixes = System.getProperty("skid.debug.graphPrefix", "");
+        String directory = System.getProperty("skid.debug.graphDirectory", "");
+        if (prefixes.isEmpty() || directory.isEmpty()) return;
+        boolean selected = java.util.Arrays.stream(prefixes.split(","))
+                .map(String::trim).filter(prefix -> !prefix.isEmpty())
+                .anyMatch(prefix -> method.getOwner().startsWith(prefix));
+        if (!selected) return;
+        String name = (method.getOwner() + "_" + method.getName())
+                .replaceAll("[^A-Za-z0-9_$.-]", "_")
+                + "_" + Integer.toHexString(method.getDesc().hashCode()) + ".txt";
+        try {
+            java.nio.file.Path target = java.nio.file.Paths.get(directory, phase);
+            java.nio.file.Files.createDirectories(target);
+            java.nio.file.Files.writeString(target.resolve(name), graph.toString(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Cannot write requested graph diagnostic for "
+                    + method.getOwner() + "#" + method.getName(), failure);
+        }
     }
 }

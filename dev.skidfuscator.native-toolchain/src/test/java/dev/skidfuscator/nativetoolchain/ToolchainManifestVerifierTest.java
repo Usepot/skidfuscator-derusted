@@ -44,7 +44,8 @@ class ToolchainManifestVerifierTest {
                 signed.manifest().nativeIrAbi(),
                 signed.manifest().supportedTargets(),
                 signed.manifest().hostArchives(),
-                signed.manifest().hostDriverSha256()
+                signed.manifest().hostDriverSha256(),
+                signed.manifest().hostTreeSha256()
         );
         final SignedToolchainManifest tamperedEnvelope = new SignedToolchainManifest(
                 tampered, signed.signatureAlgorithm(), signed.keyId(), signed.signature());
@@ -72,8 +73,19 @@ class ToolchainManifestVerifierTest {
                         "c".repeat(64),
                         100
                 )),
-                Map.of(NativeTarget.WINDOWS_X86_64, driverDigest())
+                Map.of(NativeTarget.WINDOWS_X86_64, driverDigest()),
+                Map.of(NativeTarget.WINDOWS_X86_64, treeDigest())
         );
+    }
+
+    static String treeDigest() {
+        try {
+            String entry = "bin/skidllvm.exe" + '\0' + "1" + '\0' + driverDigest() + "\n";
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(entry.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     static String driverDigest() {

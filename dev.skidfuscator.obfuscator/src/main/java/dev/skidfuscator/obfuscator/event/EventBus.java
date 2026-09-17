@@ -15,6 +15,9 @@ import java.util.function.Predicate;
  */
 public class EventBus {
     private static final Map<Class<?>, List<EventListener>> listeners = new HashMap<>();
+    private static long nextRegistrationId;
+    private static final Comparator<EventListener> ORDER = Comparator.comparingInt(EventListener::getPriority)
+            .thenComparingLong(listener -> listener.registrationId);
 
     /**
      * Registers a listener to the EventBus.
@@ -32,7 +35,9 @@ public class EventBus {
             clazz = clazz.getSuperclass();
         }
 
-        for (Method declaredMethod : methods) {
+        final List<Method> orderedMethods = new ArrayList<>(methods);
+        orderedMethods.sort(Comparator.comparing(Method::toGenericString));
+        for (Method declaredMethod : orderedMethods) {
             if (!declaredMethod.isAnnotationPresent(Listen.class))
                 continue;
 
@@ -40,8 +45,8 @@ public class EventBus {
                 declaredMethod.setAccessible(true);
             }
 
-            if (declaredMethod.getParameterCount() > 1) {
-                throw new IllegalStateException("Event listener listening to... more that one thing?");
+            if (declaredMethod.getParameterCount() != 1) {
+                throw new IllegalStateException("Event listener must accept exactly one event: " + declaredMethod);
             }
 
             final Listen listen = declaredMethod.getAnnotation(Listen.class);
@@ -84,22 +89,21 @@ public class EventBus {
      * @return Modified or intact output after passing through all the interceptors
      */
     public static <T extends Event> T call(final T event, Predicate<EventListener>... preconditions) {
-        final Queue<EventListener> calls = new PriorityQueue<>(Comparator.comparingInt(EventListener::getPriority));
+        final Queue<EventListener> calls = new PriorityQueue<>(ORDER);
 
         for (List<EventListener> value : listeners.values()) {
-            loop: {
-                for (EventListener listener : value) {
-                    for (Predicate<EventListener> precondition : preconditions) {
-                        if (!precondition.test(listener)) break loop;
-                    }
-                    if (listener.check(event)) calls.add(listener);
+            listenerLoop: for (EventListener listener : value) {
+                for (Predicate<EventListener> precondition : preconditions) {
+                    if (!precondition.test(listener)) continue listenerLoop;
                 }
+                if (listener.check(event)) calls.add(listener);
             }
 
         }
 
-        for (EventListener call : calls) {
-            call.callUnsafe(event);
+        // PriorityQueue iteration is heap order, not priority order.
+        while (!calls.isEmpty()) {
+            calls.remove().callUnsafe(event);
         }
 
         return event;
@@ -113,7 +117,7 @@ public class EventBus {
      * @return Modified or intact output after passing through all the interceptors
      */
     public static <T extends Event> T callButSkip(final T event, final Class<?>... skipped) {
-        final Queue<EventListener> calls = new PriorityQueue<>(Comparator.comparingInt(EventListener::getPriority));
+        final Queue<EventListener> calls = new PriorityQueue<>(ORDER);
         final Set<Class<?>> skippedSet = new HashSet<>(Arrays.asList(skipped));
         for (List<EventListener> value : listeners.values()) {
             for (EventListener listener : value) {
@@ -124,8 +128,9 @@ public class EventBus {
             }
         }
 
-        for (EventListener call : calls) {
-            call.callUnsafe(event);
+        // PriorityQueue iteration is heap order, not priority order.
+        while (!calls.isEmpty()) {
+            calls.remove().callUnsafe(event);
         }
 
         return event;
@@ -136,6 +141,7 @@ public class EventBus {
      */
     public static void end() {
         listeners.clear();
+        nextRegistrationId = 0;
     }
 
     /**
@@ -146,6 +152,7 @@ public class EventBus {
         private final Method method;
         private final Class<?> type;
         private final int priority;
+        private final long registrationId;
 
         /**
          * Instantiates a new Event listener.
@@ -160,6 +167,7 @@ public class EventBus {
             this.method = method;
             this.type = type;
             this.priority = priority;
+            this.registrationId = nextRegistrationId++;
         }
 
         /**
@@ -212,9 +220,13 @@ public class EventBus {
         void callUnsafe(final Object event) {
             try {
                 method.invoke(listener, event);
-            } catch (InvocationTargetException | IllegalAccessException e) {
-                // TODO: Proper exception tracking
-                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                final Throwable cause = e.getCause();
+                if (cause instanceof Error) throw (Error) cause;
+                throw new IllegalStateException("Event listener failed: " + method.toGenericString()
+                        + " [" + event.getClass().getSimpleName() + "]", cause);
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException("Cannot invoke event listener: " + method.toGenericString(), e);
             }
         }
     }

@@ -108,7 +108,8 @@ class ToolchainDeliveryLocatorsTest {
                 Set.of(NativeTarget.values()),
                 Map.of(HOST, new ToolchainArchive(HOST,
                         URI.create("https://example.invalid/" + archiveName), archiveDigest, archiveBytes.length)),
-                Map.of(HOST, ToolchainManifestVerifierTest.driverDigest())
+                Map.of(HOST, ToolchainManifestVerifierTest.driverDigest()),
+                Map.of(HOST, ToolchainManifestVerifierTest.treeDigest())
         );
         final SignedToolchainManifest signed = ToolchainManifestVerifierTest.sign(manifest, keyPair);
         return new Fixture(archiveBytes, keyPair, signed,
@@ -122,7 +123,7 @@ class ToolchainDeliveryLocatorsTest {
                 original.schemaVersion(), original.toolchainVersion(), original.nativeIrAbi(),
                 original.supportedTargets(),
                 Map.of(HOST, new ToolchainArchive(HOST, uri, archive.sha256(), archive.size())),
-                original.hostDriverSha256());
+                original.hostDriverSha256(), original.hostTreeSha256());
         return ToolchainManifestVerifierTest.sign(changed, fixture.keyPair());
     }
 

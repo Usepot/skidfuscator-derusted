@@ -16,6 +16,8 @@ import org.mapleir.ir.locals.Local;
 import org.mapleir.ir.locals.LocalsPool;
 import org.mapleir.ir.locals.impl.VersionedLocal;
 import org.mapleir.ir.utils.CFGUtils;
+import org.mapleir.flowgraph.edges.FlowEdge;
+import org.mapleir.flowgraph.edges.FlowEdges;
 import org.mapleir.stdlib.collections.bitset.GenericBitSet;
 import org.mapleir.stdlib.collections.graph.algorithms.SimpleDfs;
 import org.mapleir.stdlib.collections.map.ListCreator;
@@ -59,6 +61,8 @@ public class BoissinotDestructor {
 
 	private final Map<Local, CongruenceClass> congruenceClasses;
 	private final Map<Local, Local> remap;
+	private final Map<ParallelCopyVarStmt, BasicBlock> exceptionalCopies = new IdentityHashMap<>();
+	private final Map<Local, Set<Local>> exceptionalInterference = new HashMap<>();
 
 	private BoissinotDestructor(ControlFlowGraph cfg) {
 		this.cfg = cfg;
@@ -88,6 +92,7 @@ public class BoissinotDestructor {
 		resolver = new DominanceLivenessAnalyser(cfg, entry, null);
 
 		copyPhiOperands();
+		recordExceptionalInterference();
 		
 		dom_dfs = traverseDominatorTree();
 		defuse = createDuChains();
@@ -118,7 +123,14 @@ public class BoissinotDestructor {
 							CopyVarStmt cvs = new CopyVarStmt(new VarExpr(vl, expr.getType()), expr);
 							e.setValue(new VarExpr(vl, expr.getType()));
 
-							insertEnd(e.getKey(), cvs);
+							if (isExceptionalPredecessor(e.getKey(), b)) {
+								// An exception may leave the predecessor before its last
+								// statement.  A lifted constant has no predecessor-local
+								// dependencies, so materialise it before any protected work.
+								insertStart(e.getKey(), cvs);
+							} else {
+								insertEnd(e.getKey(), cvs);
+							}
 						} else if (opcode != Opcode.LOCAL_LOAD) {
 							throw new IllegalArgumentException("Non-variable expression in phi: " + copy);
 						}
@@ -196,8 +208,100 @@ public class BoissinotDestructor {
 				r.phi.setArgument(r.pred, new VarExpr(zi, r.type));
 			}
 
-			insertEnd(p, copy);
+			if (isExceptionalPredecessor(p, b)) {
+				insertExceptionalCopy(p, copy);
+			} else {
+				insertEnd(p, copy);
+			}
 		}
+	}
+
+	private boolean isExceptionalPredecessor(BasicBlock predecessor, BasicBlock handler) {
+		for (FlowEdge<BasicBlock> edge : cfg.getEdges(predecessor)) {
+			if (edge.getType() == FlowEdges.TRYCATCH && edge.dst() == handler) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Places an exceptional-edge parallel copy at the earliest point at which all
+	 * of its operands exist.  End-of-block placement is incorrect for a try/catch
+	 * edge because any protected instruction may transfer to the handler.  Entry
+	 * placement, on the other hand, is incorrect when an operand is defined in the
+	 * protected block.  SSAGenPass splits handler-live redefinitions into a fresh
+	 * protected block, so immediately after the latest such definition is the
+	 * point which dominates every exceptional exit represented by this edge.
+	 */
+	private void insertExceptionalCopy(BasicBlock block, ParallelCopyVarStmt copy) {
+		Set<Local> sources = new HashSet<>();
+		for (CopyPair pair : copy.pairs) {
+			sources.add(pair.source);
+		}
+
+		int position = 0;
+		while (position < block.size() && block.get(position).getOpcode() == Opcode.PHI_STORE) {
+			position++;
+		}
+		for (int i = position; i < block.size(); i++) {
+			Stmt stmt = block.get(i);
+			if (stmt instanceof AbstractCopyStmt) {
+				Local defined = ((AbstractCopyStmt) stmt).getVariable().getLocal();
+				if (sources.contains(defined)) {
+					position = i + 1;
+				}
+			} else if (stmt instanceof ParallelCopyVarStmt) {
+				for (CopyPair pair : ((ParallelCopyVarStmt) stmt).pairs) {
+					if (sources.contains(pair.targ)) {
+						position = i + 1;
+					}
+				}
+			}
+		}
+		block.add(position, copy);
+		exceptionalCopies.put(copy, block);
+	}
+
+	/**
+	 * Exceptional copies are live through the protected suffix, not merely at
+	 * their syntactic use in the phi. Standard end-of-block SSA coalescing can
+	 * otherwise merge a resource's saved null with the NEW temporary, exposing
+	 * an uninitialized object (TOP after a failed invokespecial) to its finally.
+	 * Record the conflicting definitions after all CSSA copies have been placed.
+	 */
+	private void recordExceptionalInterference() {
+		for (Entry<ParallelCopyVarStmt, BasicBlock> entry : exceptionalCopies.entrySet()) {
+			ParallelCopyVarStmt edgeCopy = entry.getKey();
+			BasicBlock block = entry.getValue();
+			for (int i = block.indexOf(edgeCopy) + 1; i < block.size(); i++) {
+				Stmt statement = block.get(i);
+				List<Local> definitions = new ArrayList<>();
+				if (statement instanceof AbstractCopyStmt) {
+					definitions.add(((AbstractCopyStmt) statement).getVariable().getLocal());
+				} else if (statement instanceof ParallelCopyVarStmt) {
+					for (CopyPair pair : ((ParallelCopyVarStmt) statement).pairs) definitions.add(pair.targ);
+				}
+				for (CopyPair saved : edgeCopy.pairs) {
+					for (Local defined : definitions) {
+						if (saved.targ.equals(defined)) continue;
+						exceptionalInterference.computeIfAbsent(saved.targ, ignored -> new HashSet<>()).add(defined);
+						exceptionalInterference.computeIfAbsent(defined, ignored -> new HashSet<>()).add(saved.targ);
+					}
+				}
+			}
+		}
+	}
+
+	private boolean hasExceptionalInterference(CongruenceClass first, CongruenceClass second) {
+		for (Local left : first) {
+			Set<Local> conflicts = exceptionalInterference.get(left);
+			if (conflicts == null) continue;
+			for (Local right : second) {
+				if (conflicts.contains(right) && values.getNonNull(left) != values.getNonNull(right)) return true;
+			}
+		}
+		return false;
 	}
 
 	private void insertStart(BasicBlock b, Stmt copy) {
@@ -435,6 +539,7 @@ public class BoissinotDestructor {
 		//System.out.println(" same=" + (conClassA == conClassB));
 		if (conClassA == conClassB)
 			return true;
+		if (hasExceptionalInterference(conClassA, conClassB)) return false;
 
 		if (conClassA.size() == 1 && conClassB.size() == 1) {
 			boolean r = checkInterfereSingle(conClassA, conClassB);
@@ -470,6 +575,7 @@ public class BoissinotDestructor {
 		// return false;
 		CongruenceClass pccX = getCongruenceClass(a);
 		CongruenceClass pccY = getCongruenceClass(b);
+		if (pccX != pccY && hasExceptionalInterference(pccX, pccY)) return false;
 		for (Local c : values.get(a)) {
 			if (c == b || c == a || !checkPreDomOrder(c, a) || !intersect(a, c))
 				continue;
