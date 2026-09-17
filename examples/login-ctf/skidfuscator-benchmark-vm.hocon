@@ -1,0 +1,6 @@
+include "skidfuscator-native.hocon"
+
+native.defaultMode = VM
+native."include" = [
+  "class{^NativeBenchmarkFixture$} method{^compute$}"
+]

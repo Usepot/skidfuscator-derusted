@@ -1,0 +1,62 @@
+exempt = []
+libs = []
+
+# The operational Java-bytecode backend is used for this fixture. Native mode
+# remains fail-closed until the MapleIR lowerer and runtime loader are complete.
+native {
+  enabled = false
+}
+
+stringEncryption {
+  type = STANDARD
+  enabled = true
+  exempt = []
+}
+
+numberEncryption {
+  enabled = true
+  exempt = []
+}
+
+flowCondition {
+  enabled = true
+  exempt = []
+}
+
+flowException {
+  enabled = true
+  strength = AGGRESSIVE
+  decoyCalls {
+    enabled = false
+    scope = APPLICATION_AND_EXEMPT
+    includeLibraries = false
+    maxArgs = 5
+  }
+  exempt = []
+}
+
+flowRange {
+  enabled = true
+  exempt = []
+}
+
+flowSwitch {
+  enabled = true
+  exempt = []
+}
+
+# Keep this first executable fixture focused on transformations that are already
+# exercised by the repository's default examples.
+interprocedural.enabled = false
+exceptionReturn.enabled = false
+flowFactoryMaker.enabled = false
+outliner.enabled = false
+ahegao.enabled = false
+driver.enabled = false
+reference.enabled = false
+tamperProtection.enabled = false
+fileCrasher.enabled = false
+classRenamer.enabled = false
+methodRenamer.enabled = false
+fieldRenamer.enabled = false
+

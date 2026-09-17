@@ -1,0 +1,19 @@
+package dev.skidfuscator.nativeir;
+
+/** Operations shared by direct AOT lowering and VM bytecode generation. */
+public enum NativeOpcode {
+    ADD, SUB, MUL, SDIV, UDIV, SREM, UREM,
+    FADD, FSUB, FMUL, FDIV, FREM,
+    NEG, FNEG, BIT_NOT,
+    BIT_AND, BIT_OR, BIT_XOR, SHL, ASHR, LSHR,
+    ICMP_EQ, ICMP_NE, ICMP_SLT, ICMP_SLE, ICMP_SGT, ICMP_SGE,
+    FCMP_EQ, FCMP_NE, FCMP_LT, FCMP_LE, FCMP_GT, FCMP_GE,
+    CONVERT, REF_CAST, SELECT,
+    STRING_CONSTANT,
+    JAVA_CALL, DYNAMIC_BRIDGE,
+    FIELD_GET, FIELD_SET,
+    NEW_OBJECT, INSTANCE_OF, CHECK_CAST,
+    ARRAY_NEW, ARRAY_LENGTH, ARRAY_LOAD, ARRAY_STORE,
+    MONITOR_ENTER, MONITOR_EXIT,
+    CATCH_EXCEPTION
+}

@@ -191,7 +191,8 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
                 continue;
             }
 
-            if (isNativeSensitiveClass(classNode.node.name)) {
+            if (isNativeSensitiveClass(classNode.node.name)
+                    || skidfuscator.isNativeGeneratedClass(classNode.node.name)) {
                 continue;
             }
 
@@ -219,7 +220,8 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         final Map<String, org.objectweb.asm.tree.ClassNode> all = new LinkedHashMap<>();
         for (JarClassData classData : skidfuscator.getJarContents().getClassContents()) {
             final ClassNode classNode = classData.getClassNode();
-            if (classNode == null || classNode.node == null || isNativeSensitiveClass(classNode.node.name)) {
+            if (classNode == null || classNode.node == null || isNativeSensitiveClass(classNode.node.name)
+                    || skidfuscator.isNativeGeneratedClass(classNode.node.name)) {
                 continue;
             }
             all.put(classNode.node.name, classNode.node);
@@ -386,6 +388,14 @@ public class SignatureObfuscationTransformer extends AbstractTransformer {
         }
 
         if (handleReferences.contains(key)) {
+            return null;
+        }
+        if (skidfuscator.isNativeCandidate(key.owner, key.name, key.desc)) {
+            return null;
+        }
+        if (skidfuscator.isNativeReferencedMember(key.owner, key.name, key.desc)
+                || skidfuscator.isNativeGeneratedClass(key.owner)
+                || skidfuscator.isNativeGeneratedMethod(key.owner, key.name, key.desc)) {
             return null;
         }
 

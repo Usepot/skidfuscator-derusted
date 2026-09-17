@@ -15,6 +15,17 @@ public class LineNumberStmt extends Stmt {
         this.line = line;
     }
 
+    /**
+     * Returns the source line carried by this metadata statement.
+     *
+     * <p>Consumers which translate MapleIR into another IR need this value without
+     * re-emitting bytecode.  Keeping the accessor here also avoids brittle reflection
+     * in those consumers.</p>
+     */
+    public int getLine() {
+        return line;
+    }
+
     @Override
     public void onChildUpdated(int ptr) {
 

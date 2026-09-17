@@ -1,0 +1,250 @@
+name: Signed native runtime acceptance
+
+# This suite intentionally has no mock/fallback compiler. It becomes runnable
+# only after a signed SkidLLVM release key is pinned in the repository and the
+# matching host archives are published. Until then the preflight fails loudly.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-differential:
+    name: ${{ matrix.backend }} / ${{ matrix.platform.target }} / Java ${{ matrix.java }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        backend: [aot, vm]
+        java: ['8', '17', '21', '26']
+        platform:
+          - target: windows-x86_64
+            runner: windows-2022
+          - target: windows-aarch64
+            runner: windows-11-arm
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: macos-x86_64
+            runner: macos-15-intel
+          - target: macos-aarch64
+            runner: macos-14
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require a pinned SkidLLVM release key
+        shell: pwsh
+        run: |
+          $keyIndex = 'dev.skidfuscator.native-toolchain/src/main/resources/META-INF/skidfuscator/native/toolchain-keys.properties'
+          if (-not (Select-String -LiteralPath $keyIndex -Pattern '^[A-Za-z0-9][A-Za-z0-9._-]*=(Ed25519|RSA):' -Quiet)) {
+            throw 'No SkidLLVM release public key is pinned. Refusing to run native acceptance with an unauthenticated or fake toolchain.'
+          }
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Skidfuscator and the Java 8 fixture (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :client-standalone:shadowJar --no-daemon --stacktrace
+          fixture='examples/login-ctf'
+          rm -rf "$fixture/build"
+          mkdir -p "$fixture/build/classes" "$fixture/build/harness" "$fixture/build/semantics-classes"
+          javac --release 8 -encoding UTF-8 -d "$fixture/build/classes" \
+            "$fixture/src/main/java/ctf/login/LoginChallenge.java"
+          jar cfe "$fixture/build/login-ctf-original.jar" ctf.login.LoginChallenge \
+            -C "$fixture/build/classes" .
+          javac --release 8 -encoding UTF-8 -d "$fixture/build/harness" \
+            scripts/native-acceptance/NativeRuntimeAcceptance.java \
+            scripts/native-acceptance/ProcessDifferentialAcceptance.java
+          javac --release 8 -encoding UTF-8 \
+            -cp dev.skidfuscator.annotations/build/classes/java/main \
+            -d "$fixture/build/semantics-classes" \
+            scripts/native-acceptance/NativeSemanticsFixture.java
+          jar cfe "$fixture/build/semantics-original.jar" NativeSemanticsFixture \
+            -C "$fixture/build/semantics-classes" .
+
+      - name: Build Skidfuscator and the Java 8 fixture (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\gradlew.bat :client-standalone:shadowJar --no-daemon --stacktrace
+          $fixture = 'examples/login-ctf'
+          if (Test-Path -LiteralPath "$fixture/build") {
+            Remove-Item -LiteralPath "$fixture/build" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path "$fixture/build/classes", "$fixture/build/harness", "$fixture/build/semantics-classes" | Out-Null
+          javac --release 8 -encoding UTF-8 -d "$fixture/build/classes" `
+            "$fixture/src/main/java/ctf/login/LoginChallenge.java"
+          jar cfe "$fixture/build/login-ctf-original.jar" ctf.login.LoginChallenge `
+            -C "$fixture/build/classes" .
+          javac --release 8 -encoding UTF-8 -d "$fixture/build/harness" `
+            scripts/native-acceptance/NativeRuntimeAcceptance.java `
+            scripts/native-acceptance/ProcessDifferentialAcceptance.java
+          javac --release 8 -encoding UTF-8 `
+            -cp dev.skidfuscator.annotations/build/classes/java/main `
+            -d "$fixture/build/semantics-classes" `
+            scripts/native-acceptance/NativeSemanticsFixture.java
+          jar cfe "$fixture/build/semantics-original.jar" NativeSemanticsFixture `
+            -C "$fixture/build/semantics-classes" .
+
+      - name: Compile with authenticated SkidLLVM (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          config="examples/login-ctf/skidfuscator-native-${{ matrix.backend }}.hocon"
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate \
+            examples/login-ctf/build/login-ctf-original.jar \
+            -o examples/login-ctf/build/login-ctf-native.jar \
+            -cfg "$config" -notrack \
+            --native-toolchain-delivery DOWNLOAD \
+            --native-targets '${{ matrix.platform.target }}' \
+            --native-artifact-dir examples/login-ctf/build/native-artifacts
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate \
+            examples/login-ctf/build/semantics-original.jar \
+            -o examples/login-ctf/build/semantics-native.jar \
+            -cfg "examples/login-ctf/skidfuscator-semantics-${{ matrix.backend }}.hocon" -notrack \
+            --native-toolchain-delivery DOWNLOAD \
+            --native-targets '${{ matrix.platform.target }}' \
+            --native-artifact-dir examples/login-ctf/build/native-artifacts
+
+      - name: Compile with authenticated SkidLLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $config = "examples/login-ctf/skidfuscator-native-${{ matrix.backend }}.hocon"
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate `
+            examples/login-ctf/build/login-ctf-original.jar `
+            -o examples/login-ctf/build/login-ctf-native.jar `
+            -cfg $config -notrack `
+            --native-toolchain-delivery DOWNLOAD `
+            --native-targets '${{ matrix.platform.target }}' `
+            --native-artifact-dir examples/login-ctf/build/native-artifacts
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate `
+            examples/login-ctf/build/semantics-original.jar `
+            -o examples/login-ctf/build/semantics-native.jar `
+            -cfg "examples/login-ctf/skidfuscator-semantics-${{ matrix.backend }}.hocon" -notrack `
+            --native-toolchain-delivery DOWNLOAD `
+            --native-targets '${{ matrix.platform.target }}' `
+            --native-artifact-dir examples/login-ctf/build/native-artifacts
+
+      - name: Install Java ${{ matrix.java }} runtime
+        id: runtime-java
+        continue-on-error: ${{ matrix.java == '8' && matrix.platform.target == 'windows-aarch64' }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Explain unavailable Java 8 Windows ARM64 runtime
+        if: steps.runtime-java.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Write-Warning 'No maintained Temurin Java 8 Windows ARM64 binary is available. The target is still compiled and exercised on Java 17/21/current; Java 8 Windows ARM64 remains an explicit external runtime gap.'
+
+      - name: Differential runtime and static-secret acceptance
+        if: steps.runtime-java.outcome == 'success'
+        shell: pwsh
+        run: |
+          $original = 'examples/login-ctf/build/login-ctf-original.jar'
+          $universal = 'examples/login-ctf/build/login-ctf-native.jar'
+          $platform = 'examples/login-ctf/build/native-artifacts/login-ctf-native-${{ matrix.platform.target }}.jar'
+          java -cp examples/login-ctf/build/harness NativeRuntimeAcceptance $original $universal
+          if ($LASTEXITCODE -ne 0) { throw "Universal JAR acceptance failed with exit $LASTEXITCODE" }
+          java -cp examples/login-ctf/build/harness NativeRuntimeAcceptance $original $platform
+          if ($LASTEXITCODE -ne 0) { throw "Platform JAR acceptance failed with exit $LASTEXITCODE" }
+          $semanticsOriginal = 'examples/login-ctf/build/semantics-original.jar'
+          $semanticsUniversal = 'examples/login-ctf/build/semantics-native.jar'
+          $semanticsPlatform = 'examples/login-ctf/build/native-artifacts/semantics-native-${{ matrix.platform.target }}.jar'
+          java -cp examples/login-ctf/build/harness ProcessDifferentialAcceptance $semanticsOriginal $semanticsUniversal
+          if ($LASTEXITCODE -ne 0) { throw "Universal semantics acceptance failed with exit $LASTEXITCODE" }
+          java -cp examples/login-ctf/build/harness ProcessDifferentialAcceptance $semanticsOriginal $semanticsPlatform
+          if ($LASTEXITCODE -ne 0) { throw "Platform semantics acceptance failed with exit $LASTEXITCODE" }
+
+  native-performance:
+    name: performance / ${{ matrix.backend }} / ${{ matrix.platform.target }}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        backend: [aot, vm]
+        platform:
+          - target: windows-x86_64
+            runner: windows-2022
+          - target: windows-aarch64
+            runner: windows-11-arm
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: macos-x86_64
+            runner: macos-15-intel
+          - target: macos-aarch64
+            runner: macos-14
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a pinned SkidLLVM release key
+        shell: pwsh
+        run: |
+          $keyIndex = 'dev.skidfuscator.native-toolchain/src/main/resources/META-INF/skidfuscator/native/toolchain-keys.properties'
+          if (-not (Select-String -LiteralPath $keyIndex -Pattern '^[A-Za-z0-9][A-Za-z0-9._-]*=(Ed25519|RSA):' -Quiet)) {
+            throw 'No authenticated SkidLLVM release is configured.'
+          }
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build benchmark inputs (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :client-standalone:shadowJar --no-daemon --stacktrace
+          out='build/native-benchmark'
+          rm -rf "$out"
+          mkdir -p "$out/classes" "$out/gate"
+          javac --release 8 -d "$out/classes" scripts/native-acceptance/NativeBenchmarkFixture.java
+          jar cfe "$out/original.jar" NativeBenchmarkFixture -C "$out/classes" .
+          javac --release 8 -d "$out/gate" scripts/native-acceptance/NativeBenchmarkGate.java
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate \
+            "$out/original.jar" -o "$out/protected.jar" \
+            -cfg "examples/login-ctf/skidfuscator-benchmark-${{ matrix.backend }}.hocon" -notrack \
+            --native-toolchain-delivery DOWNLOAD --native-targets '${{ matrix.platform.target }}'
+      - name: Build benchmark inputs (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\gradlew.bat :client-standalone:shadowJar --no-daemon --stacktrace
+          $out = 'build/native-benchmark'
+          if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path "$out/classes", "$out/gate" | Out-Null
+          javac --release 8 -d "$out/classes" scripts/native-acceptance/NativeBenchmarkFixture.java
+          jar cfe "$out/original.jar" NativeBenchmarkFixture -C "$out/classes" .
+          javac --release 8 -d "$out/gate" scripts/native-acceptance/NativeBenchmarkGate.java
+          java -jar dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar obfuscate `
+            "$out/original.jar" -o "$out/protected.jar" `
+            -cfg "examples/login-ctf/skidfuscator-benchmark-${{ matrix.backend }}.hocon" -notrack `
+            --native-toolchain-delivery DOWNLOAD --native-targets '${{ matrix.platform.target }}'
+      - name: Enforce backend performance budget
+        run: >-
+          java -cp build/native-benchmark/gate NativeBenchmarkGate
+          build/native-benchmark/original.jar build/native-benchmark/protected.jar
+          ${{ matrix.backend == 'aot' && 'AOT' || 'VM' }}

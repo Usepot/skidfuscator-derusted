@@ -91,7 +91,8 @@ public class MethodDispatchTransformer extends AbstractTransformer {
             if (wrapper == null || wrapper.node == null) {
                 continue;
             }
-            if (wrapper.isVirtual() || isNativeSensitiveClass(wrapper.node.name) || isClassExempt(wrapper)) {
+            if (wrapper.isVirtual() || isNativeSensitiveClass(wrapper.node.name)
+                    || skidfuscator.isNativeGeneratedClass(wrapper.node.name) || isClassExempt(wrapper)) {
                 skip();
                 continue;
             }
@@ -706,8 +707,10 @@ public class MethodDispatchTransformer extends AbstractTransformer {
 
     private boolean isMethodExempt(final ClassNode classNode, final MethodNode method) {
         final org.mapleir.asm.MethodNode wrapped = findWrappedMethod(classNode, method);
-        return wrapped != null
-                && (skidfuscator.getExemptAnalysis().isExempt(wrapped)
+        return skidfuscator.isNativeGeneratedMethod(classNode.getName(), method.name, method.desc)
+                || wrapped != null
+                && (skidfuscator.isNativeCandidate(wrapped)
+                || skidfuscator.getExemptAnalysis().isExempt(wrapped)
                 || skidfuscator.getExemptAnalysis().isExempt(getClass(), wrapped));
     }
 

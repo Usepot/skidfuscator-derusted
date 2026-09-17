@@ -1,0 +1,28 @@
+include "skidfuscator.hocon"
+
+# First operational AOT acceptance profile. It deliberately disables the
+# bytecode transforms for the selected method so the current constant-string
+# lowerer receives its supported finalized shape.
+stringEncryption.enabled = false
+numberEncryption.enabled = false
+intAnnotationEncryption.enabled = false
+stringAnnotationEncryption.enabled = false
+flowCondition.enabled = false
+flowException.enabled = false
+flowRange.enabled = false
+flowSwitch.enabled = false
+
+native {
+  enabled = true
+  defaultMode = AOT
+  "include" = [
+    "class{^ctf/login/LoginChallenge$} method{^revealFlag$}"
+  ]
+  targets = ["windows-x86_64"]
+  artifacts = UNIVERSAL
+  toolchain {
+    delivery = EXTERNAL
+    version = "1.0.0-alpha.1"
+    nativeIrAbi = 1
+  }
+}

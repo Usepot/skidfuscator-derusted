@@ -45,6 +45,8 @@ void initBase() {
     include ':obfuscator'
     include ':client-standalone'
     include ':gradle-plugin'
+    include ':native-ir'
+    include ':native-toolchain'
 
     project(":annotations").projectDir = file('dev.skidfuscator.annotations')
     project(":commons").projectDir = file('dev.skidfuscator.commons')
@@ -54,6 +56,8 @@ void initBase() {
     project(":obfuscator").projectDir = file('dev.skidfuscator.obfuscator')
     project(":client-standalone").projectDir = file('dev.skidfuscator.client.standalone')
     project(":gradle-plugin").projectDir = file('dev.skidfuscator.gradle-plugin')
+    project(":native-ir").projectDir = file('dev.skidfuscator.native-ir')
+    project(":native-toolchain").projectDir = file('dev.skidfuscator.native-toolchain')
 }
 
 initMaple()

@@ -1,0 +1,14 @@
+plugins {
+    id 'java-library'
+}
+
+group = 'dev.skidfuscator.community'
+version = '2.0.0-SNAPSHOT'
+
+dependencies {
+    api project(':native-ir')
+}
+
+test {
+    useJUnitPlatform()
+}

@@ -1,0 +1,4 @@
+include "skidfuscator-native.hocon"
+
+native.defaultMode = AOT
+native.artifacts = BOTH

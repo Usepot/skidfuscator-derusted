@@ -81,7 +81,36 @@ ahegao {
 
 native: {
   enabled: false
+  defaultMode: AOT
+  "include": []
   exempt: []
+  rules: []
+
+  targets: [
+    "windows-x86_64",
+    "windows-aarch64",
+    "linux-x86_64",
+    "linux-aarch64",
+    "macos-x86_64",
+    "macos-aarch64"
+  ]
+  artifacts: BOTH
+
+  toolchain: {
+    delivery: AUTO
+    path: ""
+    version: "1.0.0-alpha.1"
+    nativeIrAbi: 1
+  }
+
+  vm: {
+    profile: AGGRESSIVE
+    response: DELAYED_HALT
+    integrity: true
+    antiDebug: true
+    antiInstrumentation: true
+    timingChecks: true
+  }
 }
 
 driver: {

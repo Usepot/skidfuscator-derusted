@@ -82,7 +82,8 @@ public class OutlinerTransformer extends AbstractTransformer {
             }
 
             final ClassNode classNode = wrapper.node;
-            if (wrapper.isVirtual() || (classNode.access & Opcodes.ACC_INTERFACE) != 0 || isClassExempt(wrapper)) {
+            if (wrapper.isVirtual() || (classNode.access & Opcodes.ACC_INTERFACE) != 0
+                    || skidfuscator.isNativeGeneratedClass(classNode.name) || isClassExempt(wrapper)) {
                 skip();
                 continue;
             }
@@ -134,6 +135,13 @@ public class OutlinerTransformer extends AbstractTransformer {
 
     private boolean isEligibleMethod(final org.mapleir.asm.ClassNode owner, final MethodNode method) {
         if (method.instructions == null || method.instructions.size() == 0) {
+            return false;
+        }
+        if (skidfuscator.isNativeCandidate(owner.getName(), method.name, method.desc)) {
+            return false;
+        }
+        if (skidfuscator.isNativeGeneratedClass(owner.getName())
+                || skidfuscator.isNativeGeneratedMethod(owner.getName(), method.name, method.desc)) {
             return false;
         }
         if ((method.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE)) != 0) {

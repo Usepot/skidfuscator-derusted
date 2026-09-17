@@ -172,6 +172,12 @@ public class MapleJarUtil {
                                     "\r❗ Failed to write " + cn.getName() + " because the computed method was too large! Skipping class...\n"
                             );
                         } catch (Exception ex) {
+                            if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
+                                throw new IOException(
+                                        "Native output cannot fall back to the original bytes for " + cn.getName(),
+                                        ex
+                                );
+                            }
                             // [Failsafe] Everything else failed, just write the resource
                             out.write(resource.getData());
                             Skidfuscator.LOGGER.warn(
@@ -179,6 +185,10 @@ public class MapleJarUtil {
                             );
                         }
                     } catch (Exception var8) {
+                        if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
+                            throw new IOException(
+                                    "Native output class serialization failed for " + cn.getName(), var8);
+                        }
                         ClassWriter writer = this.buildClassWriter(tree, ClassWriter.COMPUTE_MAXS);
                         cn.node.accept(writer);
                         out.write(writer.toByteArray());
@@ -190,6 +200,13 @@ public class MapleJarUtil {
                         );
                     }
                 } catch (Exception var9) {
+                    if (skidfuscator.getConfig().getNativeConfig().isEnabled()) {
+                        if (var9 instanceof IOException ioException) {
+                            throw ioException;
+                        }
+                        throw new IOException(
+                                "Native output class publication failed for " + cn.getName(), var9);
+                    }
                     Skidfuscator.LOGGER.error(
                             "\rFailed to write " + cn.getName() + "! Skipping class...\n",
                             var9

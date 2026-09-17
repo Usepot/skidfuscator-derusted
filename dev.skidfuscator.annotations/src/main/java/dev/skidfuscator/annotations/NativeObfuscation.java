@@ -3,10 +3,18 @@ package dev.skidfuscator.annotations;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
+import static java.lang.annotation.ElementType.CONSTRUCTOR;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.CLASS;
 
 @Retention(CLASS)
-@Target(METHOD)
+@Target({METHOD, CONSTRUCTOR})
 public @interface NativeObfuscation {
+    Mode mode() default Mode.DEFAULT;
+
+    enum Mode {
+        DEFAULT,
+        AOT,
+        VM
+    }
 }

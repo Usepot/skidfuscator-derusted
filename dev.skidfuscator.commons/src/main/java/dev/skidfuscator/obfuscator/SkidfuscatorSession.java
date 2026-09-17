@@ -25,6 +25,15 @@ public class SkidfuscatorSession {
     private boolean renamer;
     private boolean c2j;
 
+    /** Optional root of an externally supplied SkidLLVM toolchain. */
+    private File nativeToolchainPath;
+    /** Native toolchain resolution mode (AUTO, BUNDLED, DOWNLOAD, EXTERNAL, or DISABLED). */
+    private String nativeToolchainDelivery;
+    /** Optional native target override. An empty/null value lets configuration choose the targets. */
+    private String[] nativeTargets;
+    /** Directory used for platform-specific native artifact jars. */
+    private File nativeArtifactDirectory;
+
     private boolean lowCon;
     private boolean dex;
     private boolean debug = false;
@@ -127,5 +136,21 @@ public class SkidfuscatorSession {
 
     public boolean isDebug() {
         return debug;
+    }
+
+    public File getNativeToolchainPath() {
+        return nativeToolchainPath;
+    }
+
+    public String getNativeToolchainDelivery() {
+        return nativeToolchainDelivery;
+    }
+
+    public String[] getNativeTargets() {
+        return nativeTargets == null ? null : nativeTargets.clone();
+    }
+
+    public File getNativeArtifactDirectory() {
+        return nativeArtifactDirectory;
     }
 }

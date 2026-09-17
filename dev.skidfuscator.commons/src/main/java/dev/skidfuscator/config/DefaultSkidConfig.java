@@ -1,13 +1,17 @@
 package dev.skidfuscator.config;
 
 import com.typesafe.config.Config;
+import dev.skidfuscator.config.nativeobfuscation.NativeConfig;
 
 import java.io.File;
 import java.util.Collections;
 
 public class DefaultSkidConfig extends DefaultConfig {
+    private final NativeConfig nativeConfig;
+
     public DefaultSkidConfig(Config config, String path) {
         super(config, path);
+        this.nativeConfig = new NativeConfig(config, path.isEmpty() ? "native" : path + ".native");
     }
 
     public boolean isDriver() {
@@ -49,6 +53,10 @@ public class DefaultSkidConfig extends DefaultConfig {
      */
     public boolean isFlowConditionCompressingSalt() {
         return this.getBoolean("flowCondition.compressing.salt", true) && isFlowConditionCompressing();
+    }
+
+    public NativeConfig getNativeConfig() {
+        return nativeConfig;
     }
 
     public File[] getLibs() {

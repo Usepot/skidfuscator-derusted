@@ -11,7 +11,11 @@ import picocli.CommandLine;
 import java.io.File;
 import java.text.DateFormat;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -27,6 +31,15 @@ import java.util.concurrent.Callable;
     description = "Obfuscates and runs a specific jar"
 )
 public class ObfuscateCommand implements Callable<Integer> {
+    private static final Set<String> NATIVE_TOOLCHAIN_DELIVERY_MODES = new HashSet<String>(Arrays.asList(
+            "AUTO", "BUNDLED", "DOWNLOAD", "EXTERNAL", "DISABLED"
+    ));
+    private static final Set<String> NATIVE_TARGETS = new HashSet<String>(Arrays.asList(
+            "windows-x86_64", "windows-aarch64",
+            "linux-x86_64", "linux-aarch64",
+            "macos-x86_64", "macos-aarch64"
+    ));
+
     @CommandLine.Parameters(
             index = "0",
             description = "The file which will be obfuscated."
@@ -87,6 +100,31 @@ public class ObfuscateCommand implements Callable<Integer> {
     )
     public boolean notrack;
 
+    @CommandLine.Option(
+            names = {"--native-toolchain-path"},
+            description = "Path to an installed SkidLLVM toolchain"
+    )
+    public File nativeToolchainPath;
+
+    @CommandLine.Option(
+            names = {"--native-toolchain-delivery"},
+            description = "SkidLLVM delivery mode: AUTO, BUNDLED, DOWNLOAD, EXTERNAL, or DISABLED"
+    )
+    public String nativeToolchainDelivery;
+
+    @CommandLine.Option(
+            names = {"--native-targets"},
+            split = ",",
+            description = "Comma-separated native target override"
+    )
+    public String[] nativeTargets;
+
+    @CommandLine.Option(
+            names = {"--native-artifact-dir"},
+            description = "Directory for platform-specific native artifact jars"
+    )
+    public File nativeArtifactDirectory;
+
 
     @Override
     public Integer call()  {
@@ -98,6 +136,19 @@ public class ObfuscateCommand implements Callable<Integer> {
         if (output == null) {
             output = new File(input.getPath() + "-out.jar");
         }
+
+        if (nativeToolchainDelivery != null) {
+            nativeToolchainDelivery = nativeToolchainDelivery.trim().toUpperCase(Locale.ROOT);
+            if (!NATIVE_TOOLCHAIN_DELIVERY_MODES.contains(nativeToolchainDelivery)) {
+                throw new CommandLine.ParameterException(
+                        new CommandLine(this),
+                        "Invalid --native-toolchain-delivery value '" + nativeToolchainDelivery
+                                + "'. Expected AUTO, BUNDLED, DOWNLOAD, EXTERNAL, or DISABLED."
+                );
+            }
+        }
+
+        nativeTargets = normalizeNativeTargets(nativeTargets);
 
         if (runtime == null) {
             final String home = System.getProperty("java.home");
@@ -150,12 +201,41 @@ public class ObfuscateCommand implements Callable<Integer> {
                 .debug(debug)
                 .renamer(false)
                 .analytics(!notrack)
+                .nativeToolchainPath(nativeToolchainPath)
+                .nativeToolchainDelivery(nativeToolchainDelivery)
+                .nativeTargets(nativeTargets)
+                .nativeArtifactDirectory(nativeArtifactDirectory)
                 .build();
 
         final Skidfuscator skidfuscator = new Skidfuscator(skidInstance);
         skidfuscator.run();
 
         return 0;
+    }
+
+    private String[] normalizeNativeTargets(String[] targets) {
+        if (targets == null || targets.length == 0) {
+            return null;
+        }
+
+        final String[] normalized = new String[targets.length];
+        int count = 0;
+        for (String target : targets) {
+            if (target == null || target.trim().isEmpty()) {
+                continue;
+            }
+            final String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
+            if (!NATIVE_TARGETS.contains(normalizedTarget)) {
+                throw new CommandLine.ParameterException(
+                        new CommandLine(this),
+                        "Invalid --native-targets value '" + target + "'. Supported targets: "
+                                + "windows-x86_64, windows-aarch64, linux-x86_64, linux-aarch64, "
+                                + "macos-x86_64, macos-aarch64."
+                );
+            }
+            normalized[count++] = normalizedTarget;
+        }
+        return count == 0 ? null : Arrays.copyOf(normalized, count);
     }
 
 

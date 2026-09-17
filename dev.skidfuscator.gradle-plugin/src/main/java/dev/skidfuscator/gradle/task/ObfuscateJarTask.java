@@ -10,6 +10,7 @@ import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
+import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
@@ -126,6 +127,41 @@ public class ObfuscateJarTask extends DefaultTask {
         return resolveFile(extension.getJavaExecutable(), SkidfuscatorPlugin.defaultJavaExecutable());
     }
 
+    @Optional
+    @InputDirectory
+    @PathSensitive(PathSensitivity.NONE)
+    public File getNativeToolchainPath() {
+        return extension == null ? null : resolveNullableFile(extension.getNativeToolchainPath());
+    }
+
+    @Optional
+    @Input
+    public String getNativeToolchainDelivery() {
+        return extension == null ? null : extension.getNativeToolchainDelivery();
+    }
+
+    @Input
+    public List<String> getNativeTargets() {
+        return extension == null ? Collections.<String>emptyList() : extension.getNativeTargets();
+    }
+
+    @OutputDirectory
+    public File getNativeArtifactDirectory() {
+        final File configured = extension == null
+                ? null
+                : resolveNullableFile(extension.getNativeArtifactDirectory());
+        if (configured != null) {
+            return configured;
+        }
+
+        final File output = getOutputJar();
+        final String name = output.getName();
+        final int extensionIndex = name.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")
+                ? name.length() - 4
+                : name.length();
+        return new File(output.getParentFile(), name.substring(0, extensionIndex) + "-native");
+    }
+
     @TaskAction
     public void obfuscate() {
         final File inputJar = getInputJar();
@@ -180,6 +216,28 @@ public class ObfuscateJarTask extends DefaultTask {
             command.add("-notrack");
         }
 
+        final File nativeToolchainPath = getNativeToolchainPath();
+        if (nativeToolchainPath != null) {
+            command.add("--native-toolchain-path");
+            command.add(nativeToolchainPath.getAbsolutePath());
+        }
+
+        final String nativeToolchainDelivery = getNativeToolchainDelivery();
+        if (nativeToolchainDelivery != null && !nativeToolchainDelivery.trim().isEmpty()) {
+            command.add("--native-toolchain-delivery");
+            command.add(nativeToolchainDelivery.trim());
+        }
+
+        final List<String> nativeTargets = getNativeTargets();
+        final String joinedNativeTargets = join(nativeTargets);
+        if (!joinedNativeTargets.isEmpty()) {
+            command.add("--native-targets");
+            command.add(joinedNativeTargets);
+        }
+
+        command.add("--native-artifact-dir");
+        command.add(getNativeArtifactDirectory().getAbsolutePath());
+
         getLogger().lifecycle("Running Skidfuscator with {}", javaExecutable);
         run(command);
 
@@ -215,6 +273,20 @@ public class ObfuscateJarTask extends DefaultTask {
             Thread.currentThread().interrupt();
             throw new GradleException("Interrupted while running Skidfuscator", e);
         }
+    }
+
+    private String join(List<String> values) {
+        final StringBuilder result = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.trim().isEmpty()) {
+                continue;
+            }
+            if (result.length() > 0) {
+                result.append(',');
+            }
+            result.append(value.trim());
+        }
+        return result.toString();
     }
 
     private File selectConfigFile() {

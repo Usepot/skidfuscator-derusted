@@ -1,31 +1,49 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
-
 name: Java CI with Gradle
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-and-test:
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up JDK 17
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
-        distribution: 'adopt'
-        #cache: maven
-    - name: Build with Gradle
-      run: |
-        ./gradlew shadowJar --no-daemon
-        mkdir staging/ && cp dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar staging
-    - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v3.1.0
-      with:
-        name: Skidfuscator.jar
-        path: staging/client-standalone-all.jar
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test all modules and build the universal CLI
+        run: ./gradlew test :client-standalone:shadowJar --no-daemon --stacktrace
+      - name: Upload universal CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: skidfuscator-universal-cli
+          path: dev.skidfuscator.client.standalone/build/libs/client-standalone-all.jar
+          if-no-files-found: error
+
+  test-supported-build-jdks:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Gradle 8.10 can run on Java 17 through 23. Java 23 is therefore the
+        # newest build JVM supported by this checkout's pinned wrapper.
+        java: ['21', '23']
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test on Java ${{ matrix.java }}
+        run: ./gradlew test --no-daemon --stacktrace

@@ -158,6 +158,16 @@ public class MethodMergeTransformer extends AbstractTransformer {
         if (wrapper == null || wrapper.node == null || wrapper.owner == null || wrapper.owner.node == null) {
             return null;
         }
+        if (skidfuscator.isNativeCandidate(wrapper)) {
+            return null;
+        }
+        if (skidfuscator.isNativeReferencedMember(
+                wrapper.owner.getName(), wrapper.getName(), wrapper.getDesc())
+                || skidfuscator.isNativeGeneratedClass(wrapper.owner.getName())
+                || skidfuscator.isNativeGeneratedMethod(
+                wrapper.owner.getName(), wrapper.getName(), wrapper.getDesc())) {
+            return null;
+        }
         if (wrapper.owner.isVirtual()) {
             return null;
         }
@@ -564,7 +574,8 @@ public class MethodMergeTransformer extends AbstractTransformer {
             if (classNode == null || classNode.node == null) {
                 continue;
             }
-            if (isNativeSensitiveClass(classNode.node.name)) {
+            if (isNativeSensitiveClass(classNode.node.name)
+                    || skidfuscator.isNativeGeneratedClass(classNode.node.name)) {
                 continue;
             }
             if (skidfuscator.getExemptAnalysis().isExempt(classNode)
@@ -580,7 +591,8 @@ public class MethodMergeTransformer extends AbstractTransformer {
         final Map<String, org.objectweb.asm.tree.ClassNode> all = new LinkedHashMap<>();
         for (JarClassData classData : skidfuscator.getJarContents().getClassContents()) {
             final org.mapleir.asm.ClassNode classNode = classData.getClassNode();
-            if (classNode == null || classNode.node == null || isNativeSensitiveClass(classNode.node.name)) {
+            if (classNode == null || classNode.node == null || isNativeSensitiveClass(classNode.node.name)
+                    || skidfuscator.isNativeGeneratedClass(classNode.node.name)) {
                 continue;
             }
             all.put(classNode.node.name, classNode.node);

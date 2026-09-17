@@ -21,6 +21,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.awt.Color;
 import java.io.File;
+import java.util.function.IntConsumer;
 
 public class SkidfuscatorMain {
 
@@ -70,24 +71,11 @@ public class SkidfuscatorMain {
                     final String input = line.split(" ")[1];
                     final String output = line.split(" ")[2];
 
-                    final SkidfuscatorSession session = new SkidfuscatorSession(
-                            new File(input),
-                            new File(output),
-                            null,
-                            null,
-                            null,
-                            null,
-                            new File(System.getProperty("java.home"), "lib/rt.jar"),
-                            false,
-                            false,
-                            false,
-                            false,
-                            false,
-                            false,
-                            false,
-                            false,
-                            false
-                    );
+                    final SkidfuscatorSession session = SkidfuscatorSession.builder()
+                            .input(new File(input))
+                            .output(new File(output))
+                            .runtime(new File(System.getProperty("java.home"), "lib/rt.jar"))
+                            .build();
 
                     final Skidfuscator skidfuscator = new Skidfuscator(session);
                     skidfuscator.run();
@@ -95,10 +83,20 @@ public class SkidfuscatorMain {
             }
 
         } else {
-            new CommandLine(new HelpCommand())
-                    .addSubcommand("obfuscate", new ObfuscateCommand())
-                    .addSubcommand("mappings", new MappingsCommand())
-                    .execute(args);
+            exitOnFailure(executeCommand(args), System::exit);
+        }
+    }
+
+    static int executeCommand(final String[] args) {
+        return new CommandLine(new HelpCommand())
+                .addSubcommand("obfuscate", new ObfuscateCommand())
+                .addSubcommand("mappings", new MappingsCommand())
+                .execute(args);
+    }
+
+    static void exitOnFailure(final int exitCode, final IntConsumer exitHandler) {
+        if (exitCode != CommandLine.ExitCode.OK) {
+            exitHandler.accept(exitCode);
         }
     }
 

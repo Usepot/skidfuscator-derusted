@@ -19,6 +19,8 @@ dependencies {
 
     api project(':commons')
     api project(':pure-analysis')
+    implementation project(':native-ir')
+    implementation project(':native-toolchain')
 
     implementation project(':sdk')
     implementation 'com.github.lukfor:magic-progress:0.3.2'

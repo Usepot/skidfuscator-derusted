@@ -29,6 +29,9 @@ import dev.skidfuscator.obfuscator.hierarchy.SkidHierarchy;
 import dev.skidfuscator.obfuscator.io.apk.ApkInputSource;
 import dev.skidfuscator.obfuscator.io.jar.JarInputSource;
 import dev.skidfuscator.obfuscator.number.hash.HashTransformer;
+import dev.skidfuscator.obfuscator.nativebackend.NativePipeline;
+import dev.skidfuscator.obfuscator.nativebackend.NativeCompilationPlan;
+import dev.skidfuscator.obfuscator.nativebackend.NativeBackendUnavailableException;
 import dev.skidfuscator.obfuscator.order.OrderAnalysis;
 import dev.skidfuscator.obfuscator.order.priority.MethodPriority;
 import dev.skidfuscator.obfuscator.predicate.PredicateAnalysis;
@@ -145,6 +148,10 @@ public class Skidfuscator {
     private final DependencyDownloader dependencyDownloader = new DependencyDownloader();
 
     private final Counter counter = new Counter();
+    private NativeCompilationPlan nativeCompilationPlan = new NativeCompilationPlan(List.of(), List.of());
+    private final Set<String> nativeReferencedMembers = new HashSet<>();
+    private final Set<String> nativeGeneratedClasses = new HashSet<>();
+    private final Set<String> nativeGeneratedMethods = new HashSet<>();
 
     @Setter
     private transient SkidClassNode factoryNode;
@@ -297,6 +304,14 @@ public class Skidfuscator {
         this.hierarchy.cache();
         LOGGER.log("Finished resolving hierarchy!");
 
+        /*
+         * Reserve native candidates before EventBus transformers can merge,
+         * outline, or change their signatures. The disabled path remains a
+         * strict no-op and does not consult session or hierarchy state.
+         */
+        final NativePipeline nativePipeline = new NativePipeline(this);
+        this.nativeCompilationPlan = nativePipeline.reserve();
+
         /* Register opaque predicate renderer and transformers */
         LOGGER.post("Loading transformers...");
         EventBus.register(new IntegerBlockPredicateRenderer(this, null));
@@ -336,6 +351,7 @@ public class Skidfuscator {
         transform();
         postTransform();
         finalTransform();
+
         LOGGER.log("Finished executing transformers...");
         System.out.println(ansi().cursorUpLine().append("└───────────────────────────────────────────────────────────────────┘").newline());
         System.out.println("┌────────────────────────────[ Results ]────────────────────────────┐");
@@ -392,6 +408,15 @@ public class Skidfuscator {
             }
         }
         LOGGER.log("Finished dumping classes...");
+
+        /*
+         * Native lowering reads the finalized bytecode after every MapleIR CFG has
+         * been dumped. Its loader/class-initializer edits therefore cannot be
+         * overwritten by a later mn.dump(), while the reservation still protects
+         * candidates from structural transformations above and the raw-ASM passes
+         * below.
+         */
+        this.nativeCompilationPlan = nativePipeline.prepare(this.nativeCompilationPlan);
         EventBus.end();
 
         /*
@@ -488,10 +513,63 @@ public class Skidfuscator {
         _cleanup();
 
         _dump();
+        nativePipeline.publishPlatformArtifacts();
 
         SkidProgressBar.RENDER_THREAD.shutdown();
         IntegerBlockPredicateRenderer.DEBUG = false;
         LOGGER.post("Goodbye!");
+    }
+
+    /** Used by structural late passes to preserve planned native wrappers and bodies. */
+    public boolean isNativeCandidate(final MethodNode method) {
+        return nativeCompilationPlan.candidates().stream()
+                .anyMatch(candidate -> candidate.selection().getMethod() == method);
+    }
+
+    /**
+     * A method-group transform can rewrite every override in the group. If one
+     * identity was reserved for native lowering, preserve the whole group until
+     * the native pipeline has committed or rejected that reservation.
+     */
+    public boolean isNativeCandidate(final SkidGroup group) {
+        return group.getMethodNodeList().stream().anyMatch(this::isNativeCandidate);
+    }
+
+    public boolean isNativeCandidate(final String owner, final String name, final String descriptor) {
+        return nativeCompilationPlan.candidates().stream()
+                .map(candidate -> candidate.selection().getMethod())
+                .anyMatch(method -> method.owner.getName().equals(owner)
+                        && method.getName().equals(name)
+                        && method.getDesc().equals(descriptor));
+    }
+
+    public void reserveNativeReferencedMember(final String owner, final String name, final String descriptor) {
+        nativeReferencedMembers.add(owner + '\0' + name + '\0' + descriptor);
+    }
+
+    public boolean isNativeReferencedMember(final String owner, final String name, final String descriptor) {
+        return nativeReferencedMembers.contains(owner + '\0' + name + '\0' + descriptor)
+                || nativeReferencedMembers.stream().anyMatch(reference -> {
+                    final int first = reference.indexOf('\0');
+                    return first >= 0 && reference.substring(first + 1)
+                            .equals(name + '\0' + descriptor);
+                });
+    }
+
+    public void reserveNativeGeneratedClass(final String owner) {
+        nativeGeneratedClasses.add(owner);
+    }
+
+    public void reserveNativeGeneratedMethod(final String owner, final String name, final String descriptor) {
+        nativeGeneratedMethods.add(owner + '\0' + name + '\0' + descriptor);
+    }
+
+    public boolean isNativeGeneratedClass(final String owner) {
+        return nativeGeneratedClasses.contains(owner);
+    }
+
+    public boolean isNativeGeneratedMethod(final String owner, final String name, final String descriptor) {
+        return nativeGeneratedMethods.contains(owner + '\0' + name + '\0' + descriptor);
     }
 
     private void _runAnalytics() {
@@ -1035,13 +1113,45 @@ public class Skidfuscator {
 
     protected void _dump() {
         LOGGER.post("Dumping jar...");
+        Path stagedNativeOutput = null;
         try {
+            final String outputPath;
+            if (config != null && config.getNativeConfig().isEnabled()) {
+                final Path destination = session.getOutput().toPath().toAbsolutePath().normalize();
+                final Path parent = destination.getParent();
+                if (parent == null) {
+                    throw new IOException("Native output jar has no parent directory: " + destination);
+                }
+                Files.createDirectories(parent);
+                stagedNativeOutput = Files.createTempFile(
+                        parent, "." + destination.getFileName() + ".", ".staged.jar");
+                outputPath = stagedNativeOutput.toString();
+            } else {
+                outputPath = session.getOutput().getPath();
+            }
             MapleJarUtil.dumpJar(
                     this,
                     new PassGroup("Output"),
-                    session.getOutput().getPath()
+                    outputPath
             );
+            if (stagedNativeOutput != null) {
+                final Path destination = session.getOutput().toPath().toAbsolutePath().normalize();
+                Files.move(stagedNativeOutput, destination,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                stagedNativeOutput = null;
+            }
         } catch (Exception e) {
+            if (stagedNativeOutput != null) {
+                try {
+                    Files.deleteIfExists(stagedNativeOutput);
+                } catch (IOException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+            }
+            if (config != null && config.getNativeConfig().isEnabled()) {
+                throw new NativeBackendUnavailableException(
+                        "Native output jar publication failed atomically; platform artifacts were not published", e);
+            }
             e.printStackTrace();
         }
         LOGGER.log("Finished dumping jar...");
@@ -1126,7 +1236,9 @@ public class Skidfuscator {
                 "│  "
         )){
             for (SkidGroup group : hierarchy.getGroups()) {
-                if (group.getMethodNodeList().stream().anyMatch(e -> exemptAnalysis.isExempt(e) || exemptAnalysis.isExempt(e.owner))) {
+                if (isNativeCandidate(group)
+                        || group.getMethodNodeList().stream().anyMatch(e ->
+                        exemptAnalysis.isExempt(e) || exemptAnalysis.isExempt(e.owner))) {
                     progressBar.tick();
                     continue;
                 }
@@ -1185,6 +1297,12 @@ public class Skidfuscator {
                         continue;
                     }
 
+                    /*
+                     * Native identities are reserved before transformation, but their bodies must
+                     * still receive the normal method-level EventBus pipeline. NativePipeline
+                     * lowers the finalized CFG after mn.dump(). Identity-changing group and raw
+                     * ASM passes are gated separately above/below this loop.
+                     */
                     if (exemptAnalysis.isExempt(methodNode)) {
                         progressBar.tick();
                         continue;

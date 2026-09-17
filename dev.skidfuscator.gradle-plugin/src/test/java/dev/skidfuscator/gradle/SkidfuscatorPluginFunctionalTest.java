@@ -221,6 +221,7 @@ class SkidfuscatorPluginFunctionalTest {
                 + "version = ''\n"
                 + "skidfuscator {\n"
                 + "  skidfuscatorJar = file('" + fakeToolPath + "')\n"
+                + "  autoBuildSkidfuscator = false\n"
                 + disabledTransformerDsl()
                 + "}\n");
         write("src/main/java/app/App.java", ""
@@ -245,17 +246,23 @@ class SkidfuscatorPluginFunctionalTest {
         final Path fakeRuntime = projectDir.resolve("fake-runtime/lib/rt.jar");
         Files.createDirectories(fakeRuntime.getParent());
         Files.write(fakeRuntime, new byte[]{0});
+        Files.createDirectories(projectDir.resolve("fake-toolchain"));
 
         write("settings.gradle", "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }");
         write("build.gradle", ""
                 + "plugins { id 'java'; id 'dev.skidfuscator' }\n"
                 + "skidfuscator {\n"
                 + "  skidfuscatorJar = file('" + fakeTool.toAbsolutePath().toString().replace("\\", "\\\\") + "')\n"
+                + "  autoBuildSkidfuscator = false\n"
                 + "  runtimePath = file('fake-runtime')\n"
                 + "  phantom = true\n"
                 + "  debug = true\n"
                 + "  fuckit = true\n"
                 + "  analytics = false\n"
+                + "  nativeToolchainPath = file('fake-toolchain')\n"
+                + "  nativeToolchainDelivery = 'EXTERNAL'\n"
+                + "  nativeTargets = ['windows-x86_64', 'linux-aarch64']\n"
+                + "  nativeArtifactDirectory = file(\"$buildDir/native-artifacts\")\n"
                 + "}\n");
         write("src/main/java/app/App.java", "package app; public class App {}\n");
 
@@ -270,6 +277,12 @@ class SkidfuscatorPluginFunctionalTest {
         assertTrue(args.contains("-dbg"));
         assertTrue(args.contains("-fuckit"));
         assertTrue(args.contains("-notrack"));
+        assertTrue(args.contains("--native-toolchain-path"));
+        assertTrue(args.contains("fake-toolchain"));
+        assertTrue(args.contains("--native-toolchain-delivery\nEXTERNAL"), args);
+        assertTrue(args.contains("--native-targets\nwindows-x86_64,linux-aarch64"), args);
+        assertTrue(args.contains("--native-artifact-dir"));
+        assertTrue(args.contains("native-artifacts"));
     }
 
     private String disabledTransformerDsl() {

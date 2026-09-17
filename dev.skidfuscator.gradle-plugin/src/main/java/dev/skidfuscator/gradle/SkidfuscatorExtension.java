@@ -4,6 +4,7 @@ import org.gradle.api.Project;
 import org.gradle.api.file.ConfigurableFileCollection;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,10 @@ public class SkidfuscatorExtension {
     private Object skidfuscatorProjectDir;
     private boolean autoBuildSkidfuscator = true;
     private String skidfuscatorBuildTask;
+    private Object nativeToolchainPath;
+    private String nativeToolchainDelivery;
+    private final List<String> nativeTargets = new ArrayList<String>();
+    private Object nativeArtifactDirectory;
 
     public SkidfuscatorExtension(Project project) {
         this.project = project;
@@ -159,6 +164,46 @@ public class SkidfuscatorExtension {
         this.skidfuscatorBuildTask = skidfuscatorBuildTask;
     }
 
+    public Object getNativeToolchainPath() {
+        return nativeToolchainPath;
+    }
+
+    public void setNativeToolchainPath(Object nativeToolchainPath) {
+        this.nativeToolchainPath = nativeToolchainPath;
+    }
+
+    public String getNativeToolchainDelivery() {
+        return nativeToolchainDelivery;
+    }
+
+    public void setNativeToolchainDelivery(String nativeToolchainDelivery) {
+        this.nativeToolchainDelivery = nativeToolchainDelivery;
+    }
+
+    public List<String> getNativeTargets() {
+        return nativeTargets;
+    }
+
+    public void setNativeTargets(Iterable<?> targets) {
+        nativeTargets.clear();
+        if (targets == null) {
+            return;
+        }
+        for (Object target : targets) {
+            if (target != null) {
+                nativeTargets.add(String.valueOf(target));
+            }
+        }
+    }
+
+    public Object getNativeArtifactDirectory() {
+        return nativeArtifactDirectory;
+    }
+
+    public void setNativeArtifactDirectory(Object nativeArtifactDirectory) {
+        this.nativeArtifactDirectory = nativeArtifactDirectory;
+    }
+
     public List<String> getExemptions() {
         return exemptions;
     }
@@ -189,6 +234,30 @@ public class SkidfuscatorExtension {
 
     public void skidfuscatorBuildTask(String task) {
         setSkidfuscatorBuildTask(task);
+    }
+
+    public void nativeToolchainPath(Object path) {
+        setNativeToolchainPath(path);
+    }
+
+    public void nativeToolchainDelivery(String delivery) {
+        setNativeToolchainDelivery(delivery);
+    }
+
+    public void nativeTarget(String target) {
+        if (target != null) {
+            nativeTargets.add(target);
+        }
+    }
+
+    public void nativeTargets(String... targets) {
+        if (targets != null) {
+            Collections.addAll(nativeTargets, targets);
+        }
+    }
+
+    public void nativeArtifactDirectory(Object path) {
+        setNativeArtifactDirectory(path);
     }
 
     public void library(Object path) {
