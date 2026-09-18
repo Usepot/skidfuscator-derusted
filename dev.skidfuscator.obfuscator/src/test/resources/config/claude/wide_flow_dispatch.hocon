@@ -1,0 +1,27 @@
+# Full interaction that regressed OrbitServerSelectionList.
+seed.wide = true
+
+interprocedural { enabled = true }
+interproceduralHarden { enabled = true }
+interproceduralPredicate {
+    enabled = true
+    dynamicClassPredicates = true
+}
+
+flowFactoryMaker.enabled = true
+flowCondition { enabled = true, compressing { enabled = true, salt = true } }
+flowException { enabled = true, decoyCalls.enabled = true }
+flowSwitch.enabled = true
+flowRange.enabled = true
+numberEncryption.enabled = true
+stringEncryption { enabled = true, type = POLYMORPHIC }
+
+methodDispatch {
+    enabled = true
+    scope = APP_ONLY
+    maxPerDispatcher = 64
+}
+methodCallObfuscation.enabled = true
+methodMerge.enabled = true
+outliner.enabled = true
+sdk.enabled = true

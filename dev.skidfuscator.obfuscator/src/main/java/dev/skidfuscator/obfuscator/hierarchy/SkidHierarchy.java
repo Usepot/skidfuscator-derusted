@@ -291,39 +291,11 @@ public class SkidHierarchy implements Hierarchy {
                                 if (instruction instanceof InvokeDynamicInsnNode) {
                                     final InvokeDynamicInsnNode e = (InvokeDynamicInsnNode) instruction;
 
-                                    if (!e.bsm.getOwner().equals("java/lang/invoke/LambdaMetafactory")
-                                            || !e.bsm.getName().equals("metafactory")) {
-                                        return;
-                                        //throw new IllegalStateException("Invalid invoke dynamic!");
-                                    }
+                                    if (!isLambdaMetafactory(e.bsm)) continue;
+                                    reserveLambdaContract(e.desc, e.name, e.bsmArgs);
 
-                                    assert (e.bsmArgs.length == 3 && e.bsmArgs[1] instanceof Handle);
+                                    assert (e.bsmArgs.length >= 3 && e.bsmArgs[1] instanceof Handle);
                                     final Handle boundFunc = (Handle) e.bsmArgs[1];
-
-                                    // Patch for implicit functions (IR-less mirror of the CFG path):
-                                    // only mark a constructor lambda ("lambda$new$N") as an implicit
-                                    // function when it adapts a single-method application SAM we own (one
-                                    // that has a group). External/exempt library SAMs have no group, so we
-                                    // fall through to record the bound lambda body as a normal invocation
-                                    // instead of NPE-ing on getGroup().
-                                    if (boundFunc.getName().startsWith("lambda$new$")) {
-                                        final String returnType = Type.getReturnType(e.desc).getClassName().replace(".", "/");
-                                        //System.out.println("Attempting to locate " + returnType);
-                                        final ClassNode targetClass = skidfuscator.getClassSource().findClassNode(returnType);
-
-                                        if (!(targetClass instanceof SkidClassNode))
-                                            return;
-
-                                        if (targetClass.getMethods().size() == 1) {
-                                            final SkidMethodNode methodNode = (SkidMethodNode) targetClass.getMethods().get(0);
-
-                                            if (methodNode.getGroup() != null) {
-                                                methodNode.getGroup().setImplicitFunction(true);
-                                                //System.out.println("Found implicit function: " + methodNode.toString());
-                                                return;
-                                            }
-                                        }
-                                    }
 
                                     target = new ClassMethodHash(boundFunc.getName(), boundFunc.getDesc(), boundFunc.getOwner());
                                     skidInvocation = new SkidInvocation(
@@ -371,65 +343,16 @@ public class SkidHierarchy implements Hierarchy {
                                 if (invocation instanceof DynamicInvocationExpr) {
                                     final DynamicInvocationExpr e = (DynamicInvocationExpr) invocation;
 
-                                    if (!e.getOwner().equals("java/lang/invoke/LambdaMetafactory")
-                                            || !e.getName().equals("metafactory")) {
-                                        return;
-                                        //throw new IllegalStateException("Invalid invoke dynamic!");
-                                    }
+                                    if (!isLambdaMetafactory(e.getBootstrapMethod())) return;
+                                    reserveLambdaContract(e.getDesc(), e.getBoundName(), e.getBootstrapArgs());
 
-                                    assert (e.getBootstrapArgs().length == 3 && e.getBootstrapArgs()[1] instanceof Handle);
+                                    assert (e.getBootstrapArgs().length >= 3 && e.getBootstrapArgs()[1] instanceof Handle);
                                     final Handle boundFunc = (Handle) e.getBootstrapArgs()[1];
 
                                     if (boundFunc.getName().equals("apply") && false ) {
                                         System.out.println("Invoking dynamic " + invocation.getOwner() + "#"
                                                 + invocation.getName() + invocation.getDesc() + " bound to " + boundFunc.getOwner() + "#" + boundFunc.getName() + boundFunc.getDesc()
                                         );
-                                    }
-
-                                    // Patch for implicit functions: a lambda declared inside a
-                                    // constructor is given the synthetic name "lambda$new$N" by javac.
-                                    // We only treat such a lambda as one of *our* implicit functions when
-                                    // it adapts a single-method application SAM that we actually own (i.e.
-                                    // one that has a SkidGroup). When the adapted functional interface is a
-                                    // library type bundled into the jar (e.g. io.socket's Emitter$Listener)
-                                    // it is exempt/abstract and has no group -- in that case we must NOT
-                                    // crash. We simply fall through and let the bound lambda body be
-                                    // recorded as a normal invocation below.
-                                    if (boundFunc.getName().startsWith("lambda$new$")) {
-                                        final String returnType = e.getType().getClassName().replace(".", "/");
-                                        //System.out.println("Attempting to locate " + returnType);
-                                        final ClassNode targetClass = skidfuscator.getClassSource().findClassNode(returnType);
-
-                                        if (!(targetClass instanceof SkidClassNode))
-                                            return;
-
-                                        SkidMethodNode methodNode = null;
-
-                                        // [resolution] walk up the hierarchy to the first class that
-                                        // actually declares a method. Only a clean single-method node
-                                        // qualifies as an implicit function; anything else (multi-method
-                                        // type, external/exempt SAM) is left to the normal recording path.
-                                        ClassNode node;
-
-                                        for (node = targetClass;
-                                             node instanceof SkidClassNode;
-                                             node = skidfuscator.getClassSource().findClassNode(node.getSuperName())) {
-                                            if (!node.getMethods().isEmpty()) {
-                                                if (node.getMethods().size() == 1) {
-                                                    methodNode = (SkidMethodNode) node.getMethods().get(0);
-                                                }
-                                                break;
-                                            }
-                                        }
-
-                                        // Only mark + skip when the resolved SAM is an application method
-                                        // we own (has a group). Otherwise fall through to record the bound
-                                        // lambda body as a normal invocation instead of throwing.
-                                        if (methodNode != null && methodNode.getGroup() != null) {
-                                            methodNode.getGroup().setImplicitFunction(true);
-                                            //System.out.println("Found implicit function: " + methodNode.toString());
-                                            return;
-                                        }
                                     }
 
                                     target = new ClassMethodHash(boundFunc.getName(), boundFunc.getDesc(), boundFunc.getOwner());
@@ -501,6 +424,30 @@ public class SkidHierarchy implements Hierarchy {
 
     public SkidGroup getGroup(final ClassMethodHash methodNode) {
         return hashToGroupMap.get(methodNode);
+    }
+
+    private static boolean isLambdaMetafactory(final Handle bootstrap) {
+        return "java/lang/invoke/LambdaMetafactory".equals(bootstrap.getOwner())
+                && ("metafactory".equals(bootstrap.getName()) || "altMetafactory".equals(bootstrap.getName()));
+    }
+
+    /**
+     * LambdaMetafactory generates implementations outside our class graph. Its SAM
+     * descriptor is a runtime contract regardless of annotations, method counts,
+     * lambda body names (which may already be renamed), or where the lambda lives.
+     * Preserve that family while still recording and transforming the body below.
+     */
+    private void reserveLambdaContract(final String factoryDesc, final String samName, final Object[] bootstrapArgs) {
+        final Type functionalType = Type.getReturnType(factoryDesc);
+        if (functionalType.getSort() != Type.OBJECT) return;
+        for (Object argument : bootstrapArgs) {
+            // Includes erased/instantiated SAM types and altMetafactory bridges;
+            // marker interfaces are OBJECT Types and do not describe methods.
+            if (!(argument instanceof Type) || ((Type) argument).getSort() != Type.METHOD) continue;
+            final SkidGroup samGroup = hashToGroupMap.get(new ClassMethodHash(
+                    samName, ((Type) argument).getDescriptor(), functionalType.getInternalName()));
+            if (samGroup != null) samGroup.setImplicitFunction(true);
+        }
     }
 
 

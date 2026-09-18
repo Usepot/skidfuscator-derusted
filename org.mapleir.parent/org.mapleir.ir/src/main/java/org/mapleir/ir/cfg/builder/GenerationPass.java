@@ -516,6 +516,8 @@ public class GenerationPass extends ControlFlowGraphBuilder.BuilderPass {
 				break;
 
 			case INEG:
+			case LNEG:
+			case FNEG:
 			case DNEG:
 				_neg();
 				break;

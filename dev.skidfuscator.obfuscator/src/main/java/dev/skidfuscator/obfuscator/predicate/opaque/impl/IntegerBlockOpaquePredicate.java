@@ -66,5 +66,17 @@ public class IntegerBlockOpaquePredicate implements BlockOpaquePredicate {
     @Override
     public void set(SkidBlock skidBlock, int value) {
         predicateMap.put(skidBlock, value);
+        /*
+         * seed.wide maintains a cached 64-bit predicate whose low word is the
+         * legacy int predicate. Structural renderers can materialize the wide
+         * value before later assigning an explicit int value to a proxy block.
+         * Updating only predicateMap leaves those two views inconsistent and
+         * makes subsequent int constants decode against a stale flow seed.
+         * Preserve the already-randomized high word while synchronizing the low
+         * word; regenerating the whole long here would invalidate expressions
+         * which may already contain the materialized high bits.
+         */
+        predicateLongMap.computeIfPresent(skidBlock, (ignored, wide) ->
+                (wide & 0xFFFFFFFF00000000L) | (value & 0xFFFFFFFFL));
     }
 }
